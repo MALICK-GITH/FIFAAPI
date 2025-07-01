@@ -14,6 +14,10 @@ def fetch_matches():
     except Exception as e:
         return []
 
+@app.route('/')
+def home():
+    return '<h2>API FIFA en ligne</h2><ul><li>/matches</li><li>/leagues</li><li>/match/&lt;id&gt;</li><li>/predict (POST)</li></ul>'
+
 @app.route('/matches', methods=['GET'])
 def get_matches():
     matches = fetch_matches()
