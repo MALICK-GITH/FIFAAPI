@@ -591,21 +591,15 @@ async def mesabos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             txt = "\n".join(f"• <b>{a}</b>" for a in chunk)
             await send_html_long_message(context.bot, update.message.chat_id, f"<b>Vos abonnements :</b>\n{txt}", parse_mode="HTML")
 
+from telegram.ext import ApplicationBuilder, CommandHandler
+
+async def start(update, context):
+    await update.message.reply_text("Salut, bot opérationnel!")
+
 def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+    app = ApplicationBuilder().token("TON_TOKEN").build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("lang", lang_cmd))
-    app.add_handler(CommandHandler("matchs", show_matches))
-    app.add_handler(CommandHandler("abonner", abonner_cmd))
-    app.add_handler(CommandHandler("desabonner", desabonner_cmd))
-    app.add_handler(CommandHandler("mesabos", mesabos_cmd))
-    app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_error_handler(error_handler)
-    # Lancer la surveillance des buts
-    loop = asyncio.get_event_loop()
-    loop.create_task(periodic_check_goals(app))
     app.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
