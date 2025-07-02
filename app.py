@@ -632,12 +632,32 @@ def traduire_option_pari(opt, team1, team2):
             return f"{team1} gagne avec handicap {param}"
         elif t == 2:
             return f"{team2} gagne avec handicap {param}"
-    # Over/Under
+    # Over/Under (plus/moins de X buts)
     elif g == 3:
         if t == 1:
             return f"Plus de {param} buts"
         elif t == 2:
             return f"Moins de {param} buts"
+    # Double chance
+    elif g == 4:
+        if t == 1:
+            return f"{team1} ou Match nul"
+        elif t == 2:
+            return f"{team2} ou Match nul"
+        elif t == 3:
+            return f"{team1} ou {team2}"
+    # Score exact
+    elif g == 5:
+        return f"Score exact : {param}"
+    # Les deux équipes marquent
+    elif g == 6:
+        if t == 1:
+            return "Les deux équipes marquent : Oui"
+        elif t == 2:
+            return "Les deux équipes marquent : Non"
+    # Mi-temps/fin de match
+    elif g == 7:
+        return f"Mi-temps/Fin de match : {param}"
     # Autres cas
     return f"Type {t} (groupe {g}, param {param})"
 
