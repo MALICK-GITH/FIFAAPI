@@ -24,7 +24,7 @@ def home():
             api_url = "https://1xbet.com/LiveFeed/Get1x2_VZip?sports=85&count=50&lng=fr&gr=70&mode=4&country=96&getEmpty=true"
             try:
                 response = requests.get(api_url, timeout=5)
-        matches = response.json().get("Value", [])
+                matches = response.json().get("Value", [])
             except Exception as e:
                 # Si l'API échoue, fallback sur le fichier local
                 try:
