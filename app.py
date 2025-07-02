@@ -24,7 +24,7 @@ def home():
             api_url = "https://1xbet.com/LiveFeed/Get1x2_VZip?sports=85&count=50&lng=fr&gr=70&mode=4&country=96&getEmpty=true"
             try:
                 response = requests.get(api_url, timeout=5)
-                matches = response.json().get("Value", [])
+        matches = response.json().get("Value", [])
             except Exception as e:
                 # Si l'API échoue, fallback sur le fichier local
                 try:
@@ -248,13 +248,35 @@ def match_details(match_id):
                         'cote': o.get('C'),
                         'param': o.get('P', None)
                     })
-        # Calcul des probabilités et filtrage
+        # --- Robot FIFA : analyse sérieuse de la dispersion des cotes ---
+        # Grouper par type
+        types = {}
         for opt in options:
-            opt['proba'] = round(1 / opt['cote'], 3)
-        options_filtrees = [opt for opt in options if 1.399 <= opt['cote'] <= 3]
-        meilleure = max(options_filtrees, key=lambda x: x['proba'], default=None)
+            t = opt['type']
+            if t not in types:
+                types[t] = []
+            types[t].append(opt['cote'])
+        # Calculer la meilleure option
+        best_score = -1
+        best_opt = None
+        for opt in options:
+            if 1.399 <= opt['cote'] <= 3:
+                moyenne = sum(types[opt['type']]) / len(types[opt['type']])
+                ecart_relatif = (moyenne - opt['cote']) / moyenne if moyenne > 0 else 0
+                proba = 1 / opt['cote']
+                score = proba * (1 + ecart_relatif)
+                opt['proba'] = round(proba, 3)
+                opt['score_robot'] = round(score, 3)
+                opt['ecart_relatif'] = round(ecart_relatif, 3)
+                if score > best_score:
+                    best_score = score
+                    best_opt = opt
+            else:
+                opt['proba'] = round(1 / opt['cote'], 3)
+                opt['score_robot'] = None
+                opt['ecart_relatif'] = None
         # Explication robot
-        explication = "La probabilité est calculée comme 1/cote. Le robot recommande l'option avec la probabilité la plus forte dans la fourchette 1,399 à 3."
+        explication = "Le robot analyse la dispersion des cotes pour chaque type de pari. Une option avec une cote plus basse que la moyenne de son type est considérée comme plus fiable. Le score robotique combine la probabilité implicite et cet écart relatif."
         # HTML
         return f'''
         <!DOCTYPE html>
@@ -279,14 +301,14 @@ def match_details(match_id):
                 <p><b>Ligue :</b> {league} | <b>Sport :</b> {sport}</p>
                 <p><b>Score :</b> {score1} - {score2}</p>
                 <div class="robot-box">
-                    <b>🤖 Recommandation du robot :</b><br/>
-                    {f"Option : <b>{meilleure['type']}</b> (groupe {meilleure['groupe']}, paramètre {meilleure['param']})<br/>Cote : <b>{meilleure['cote']}</b> | Probabilité estimée : <b>{meilleure['proba']*100:.1f}%</b>" if meilleure else "Aucune option optimale trouvée dans la fourchette 1,399 à 3."}
+                    <b>🤖 Recommandation du robot FIFA :</b><br/>
+                    {f"Option : <b>{best_opt['type']}</b> (groupe {best_opt['groupe']}, paramètre {best_opt['param']})<br/>Cote : <b>{best_opt['cote']}</b> | Probabilité estimée : <b>{best_opt['proba']*100:.1f}%</b> | Score robot : <b>{best_opt['score_robot']}</b>" if best_opt else "Aucune option optimale trouvée dans la fourchette 1,399 à 3."}
                     <br/><i>{explication}</i>
                 </div>
                 <h3>Toutes les options de paris disponibles</h3>
                 <table class="paris-table">
-                    <tr><th>Type</th><th>Groupe</th><th>Paramètre</th><th>Cote</th><th>Probabilité (%)</th></tr>
-                    {''.join(f'<tr><td>{opt["type"]}</td><td>{opt["groupe"]}</td><td>{opt["param"]}</td><td>{opt["cote"]}</td><td>{opt["proba"]*100:.1f}</td></tr>' for opt in options)}
+                    <tr><th>Type</th><th>Groupe</th><th>Paramètre</th><th>Cote</th><th>Probabilité (%)</th><th>Score robot</th><th>Écart relatif</th></tr>
+                    {''.join(f'<tr><td>{opt["type"]}</td><td>{opt["groupe"]}</td><td>{opt["param"]}</td><td>{opt["cote"]}</td><td>{opt["proba"]*100:.1f}</td><td>{opt["score_robot"] if opt["score_robot"] is not None else "-"}</td><td>{opt["ecart_relatif"] if opt["ecart_relatif"] is not None else "-"}</td></tr>' for opt in options)}
                 </table>
                 <h3>Statistiques principales</h3>
                 <table class="stats-table">
@@ -379,7 +401,7 @@ def get_equipes(data):
 
 def get_cotes(match):
     cotes = []
-                for o in match.get("E", []):
+    for o in match.get("E", []):
         if o.get("C") is not None:
             cotes.append({
                 "type": o.get("T"),
@@ -402,9 +424,9 @@ def get_stats(match):
     return stats
 
 def get_meteo(match):
-                meteo_data = match.get("MIS", [])
-                temp = next((item["V"] for item in meteo_data if item.get("K") == 9), "–")
-                humid = next((item["V"] for item in meteo_data if item.get("K") == 27), "–")
+    meteo_data = match.get("MIS", [])
+    temp = next((item["V"] for item in meteo_data if item.get("K") == 9), "–")
+    humid = next((item["V"] for item in meteo_data if item.get("K") == 27), "–")
     return {"temperature": temp, "humidite": humid}
 
 # --- ENDPOINTS API PUISSANTS ET SÉCURISÉS ---
