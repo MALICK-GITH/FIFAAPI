@@ -283,16 +283,16 @@ def match_details(match_id):
             <title>Détails du match</title>
             <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
             <style>
-                body {{ font-family: Arial; padding: 20px; background: #f4f4f4; }}
-                .container {{ max-width: 900px; margin: auto; background: white; border-radius: 10px; box-shadow: 0 2px 8px #ccc; padding: 20px; }}
-                h2 {{ text-align: center; }}
-                .stats-table, .paris-table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-                .stats-table th, .stats-table td, .paris-table th, .paris-table td {{ border: 1px solid #ccc; padding: 8px; text-align: center; }}
-                .back-btn {{ margin-bottom: 20px; display: inline-block; }}
-                .robot-box {{ background: #eafaf1; border: 2px solid #27ae60; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 18px; }}
-                .chart-switch {{ text-align:center; margin: 20px 0; }}
-                .chart-switch button {{ padding: 8px 18px; margin: 0 8px; font-size: 16px; border: none; border-radius: 4px; background: #2c3e50; color: white; cursor: pointer; }}
-                .chart-switch button.active {{ background: #27ae60; }}
+                body { font-family: Arial; padding: 20px; background: #f4f4f4; }
+                .container { max-width: 900px; margin: auto; background: white; border-radius: 10px; box-shadow: 0 2px 8px #ccc; padding: 20px; }
+                h2 { text-align: center; }
+                .stats-table, .paris-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                .stats-table th, .stats-table td, .paris-table th, .paris-table td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+                .back-btn { margin-bottom: 20px; display: inline-block; }
+                .expert-box { background: #f7f7f7; border: 2px solid #444; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 18px; color: #222; }
+                .chart-switch { text-align:center; margin: 20px 0; }
+                .chart-switch button { padding: 8px 18px; margin: 0 8px; font-size: 16px; border: none; border-radius: 4px; background: #2c3e50; color: white; cursor: pointer; }
+                .chart-switch button.active { background: #27ae60; }
             </style>
         </head><body>
             <div class="container">
@@ -300,10 +300,10 @@ def match_details(match_id):
                 <h2 id="teams">{team1} vs {team2}</h2>
                 <p><b>Ligue :</b> <span id="league">{league}</span> | <b>Sport :</b> <span id="sport">{sport}</span></p>
                 <p><b>Score :</b> <span id="score">{score1} - {score2}</span></p>
-                <div class="robot-box" id="robot-box">
-                    <b>🤖 Recommandation du robot FIFA :</b><br/>
-                    {f"Option : <b>{best_opt['type']}</b> (groupe {best_opt['groupe']}, paramètre {best_opt['param']})<br/>Cote : <b>{best_opt['cote']}</b> | Probabilité estimée : <b>{best_opt['proba']*100:.1f}%</b> | Score robot : <b>{best_opt['score_robot']}</b>" if best_opt else "Aucune option optimale trouvée dans la fourchette 1,399 à 3."}
-                    <br/><i>{explication}</i>
+                <div class="expert-box" id="expert-box">
+                    <b>Analyse de pari – Conseils experts :</b><br/>
+                    {f"Option recommandée : <b>{traduire_option_pari(best_opt, team1, team2)}</b> (groupe {best_opt['groupe']}, paramètre {best_opt['param']})<br/>Cote : <b>{best_opt['cote']}</b> | Probabilité estimée : <b>{best_opt['proba']*100:.1f}%</b> | Score analytique : <b>{best_opt['score_robot']}</b>" if best_opt else "Aucune option optimale trouvée dans la fourchette 1,399 à 3."}
+                    <br/><i>Cette recommandation est issue d'une analyse statistique avancée de la dispersion des cotes. Une cote inférieure à la moyenne de son type est considérée comme plus fiable. Le score combine la probabilité implicite et l'écart relatif à la moyenne.</i>
                 </div>
                 <h3>Toutes les options de paris disponibles</h3>
                 <table class="paris-table" id="paris-table">
@@ -620,89 +620,86 @@ def traduire_option_pari(opt, team1, team2):
     g = opt.get('groupe')
     param = opt.get('param')
     # 1N2 classique
+    if g == 1:
     if t == 1:
         return f"Victoire {team1}"
     elif t == 2:
         return f"Victoire {team2}"
     elif t == 3 or t == 'X':
         return "Match nul"
-    # Handicap
+    # Handicap (groupe 2)
     elif g == 2:
-        if t == 1:
-            return f"{team1} gagne avec handicap {param}"
-        elif t == 2:
-            return f"{team2} gagne avec handicap {param}"
-    # Over/Under (plus/moins de X buts)
-    elif g == 3:
-        if t == 1:
-            return f"Plus de {param} buts"
-        elif t == 2:
-            return f"Moins de {param} buts"
-    # Double chance
-    elif g == 4:
-        if t == 1:
-            return f"{team1} ou Match nul"
-        elif t == 2:
-            return f"{team2} ou Match nul"
-        elif t == 3:
-            return f"{team1} ou {team2}"
-    # Score exact
-    elif g == 5:
-        return f"Score exact : {param}"
-    # Les deux équipes marquent
-    elif g == 6:
-        if t == 1:
-            return "Les deux équipes marquent : Oui"
-        elif t == 2:
-            return "Les deux équipes marquent : Non"
-    # Mi-temps/fin de match
-    elif g == 7:
-        return f"Mi-temps/Fin de match : {param}"
-    # Pari sur la première mi-temps
-    elif g == 8:
-        if t == 1:
-            return f"{team1} gagne la 1ère mi-temps"
-        elif t == 2:
-            return f"{team2} gagne la 1ère mi-temps"
-        elif t == 3:
-            return "Match nul à la mi-temps"
-    # Pari sur le nombre de corners
-    elif g == 9:
-        if t == 1:
-            return f"Plus de {param} corners"
-        elif t == 2:
-            return f"Moins de {param} corners"
-    # Pari sur le nombre de cartons
-    elif g == 10:
-        if t == 1:
-            return f"Plus de {param} cartons"
-        elif t == 2:
-            return f"Moins de {param} cartons"
-    # Pari combiné ou spécial
-    elif g == 11:
-        return f"Pari combiné/spécial : {param}"
-    # Pari sur le score à la mi-temps
-    elif g == 12:
-        return f"Score à la mi-temps : {param}"
-    # Pari sur le buteur
-    elif g == 13:
-        return f"Buteur : {param}"
-    # Pari sur le temps du premier but
-    elif g == 14:
-        return f"Premier but avant la {param}e minute"
-    # Pari sur la période avec le plus de buts
+        if t == 7:
+            return f"{team1} gagne avec handicap {param if param is not None else ''}"
+        elif t == 8:
+            return f"{team2} gagne avec handicap {param if param is not None else ''}"
+        else:
+            return f"Handicap : équipe inconnue {param if param is not None else ''}"
+    # Over/Under (groupe 15, 17, 3, etc.)
+    elif g in [3, 15, 17]:
+        if t in [9, 12]:
+            return f"Plus de {param}"
+        elif t in [10, 11]:
+            return f"Moins de {param}"
+        else:
+            return f"Over/Under spécial : {param}"
+    # Période avec le plus de buts (groupe 15)
     elif g == 15:
         return f"Période avec le plus de buts : {param}"
-    # Autres cas connus (exemples génériques)
-    elif g == 16:
-        return f"Pari spécial : {param}"
+    # Paris joueur (groupe 17)
     elif g == 17:
         return f"Pari joueur : {param}"
+    # Spéciaux (groupe 62)
+    elif g == 62:
+        if t == 13:
+            return f"Événement spécial : Oui ({param})"
+        elif t == 14:
+            return f"Événement spécial : Non ({param})"
+        else:
+            return f"Pari spécial : {param}"
+    # Mi-temps/fin de match (groupe 8)
+    elif g == 8:
+        if t == 4:
+            return f"{team1} gagne la 1ère mi-temps"
+        elif t == 5:
+            return f"{team2} gagne la 1ère mi-temps"
+        elif t == 6:
+            return "Match nul à la mi-temps"
+        else:
+            return f"Pari mi-temps spécial : {param}"
+    # Groupe 19 : options exotiques
+    elif g == 19:
+        return f"Option exotique (type {t})"
+    # Groupe 13 : buteur
+    elif g == 13:
+        return f"Buteur : {param}"
+    # Groupe 14 : temps du but
+    elif g == 14:
+        return f"Premier but avant la {param}e minute"
+    # Groupe 9/10 : corners/cartons
+    elif g == 9:
+        if t == 9:
+            return f"Plus de {param} corners"
+        elif t == 10:
+            return f"Moins de {param} corners"
+        else:
+            return f"Corners spéciaux : {param}"
+    elif g == 10:
+        if t == 9:
+            return f"Plus de {param} cartons"
+        elif t == 10:
+            return f"Moins de {param} cartons"
+        else:
+            return f"Cartons spéciaux : {param}"
+    # Groupe 12 : score à la mi-temps
+    elif g == 12:
+        return f"Score à la mi-temps : {param}"
+    # Groupe 18 : pari équipe
     elif g == 18:
         return f"Pari équipe : {param}"
     # Cas inconnu ou non géré
     else:
-        return f"Option non reconnue (type: {t}, groupe: {g}, param: {param})"
+        return f"Option spéciale (type: {t}, groupe: {g}, param: {param})"
 
 TEMPLATE = """<!DOCTYPE html>
 <html><head>
