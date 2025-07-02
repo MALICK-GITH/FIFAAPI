@@ -619,15 +619,15 @@ def traduire_option_pari(opt, team1, team2):
     t = opt.get('type')
     g = opt.get('groupe')
     param = opt.get('param')
-    # 1N2 classique
+    # Groupe 1 : 1N2 classique (victoire, nul, défaite)
     if g == 1:
-    if t == 1:
-        return f"Victoire {team1}"
-    elif t == 2:
-        return f"Victoire {team2}"
-    elif t == 3 or t == 'X':
-        return "Match nul"
-    # Handicap (groupe 2)
+        if t == 1:
+            return f"Victoire {team1}"
+        elif t == 2:
+            return f"Victoire {team2}"
+        elif t == 3 or t == 'X':
+            return "Match nul"
+    # Groupe 2 : Handicap
     elif g == 2:
         if t == 7:
             return f"{team1} gagne avec handicap {param if param is not None else ''}"
@@ -635,7 +635,7 @@ def traduire_option_pari(opt, team1, team2):
             return f"{team2} gagne avec handicap {param if param is not None else ''}"
         else:
             return f"Handicap : équipe inconnue {param if param is not None else ''}"
-    # Over/Under (groupe 15, 17, 3, etc.)
+    # Groupes 3, 15, 17 : Over/Under (plus/moins)
     elif g in [3, 15, 17]:
         if t in [9, 12]:
             return f"Plus de {param}"
@@ -643,13 +643,13 @@ def traduire_option_pari(opt, team1, team2):
             return f"Moins de {param}"
         else:
             return f"Over/Under spécial : {param}"
-    # Période avec le plus de buts (groupe 15)
+    # Groupe 15 : Période avec le plus de buts
     elif g == 15:
         return f"Période avec le plus de buts : {param}"
-    # Paris joueur (groupe 17)
+    # Groupe 17 : Pari joueur
     elif g == 17:
         return f"Pari joueur : {param}"
-    # Spéciaux (groupe 62)
+    # Groupe 62 : Paris spéciaux
     elif g == 62:
         if t == 13:
             return f"Événement spécial : Oui ({param})"
@@ -657,7 +657,7 @@ def traduire_option_pari(opt, team1, team2):
             return f"Événement spécial : Non ({param})"
         else:
             return f"Pari spécial : {param}"
-    # Mi-temps/fin de match (groupe 8)
+    # Groupe 8 : Mi-temps/fin de match
     elif g == 8:
         if t == 4:
             return f"{team1} gagne la 1ère mi-temps"
@@ -667,16 +667,16 @@ def traduire_option_pari(opt, team1, team2):
             return "Match nul à la mi-temps"
         else:
             return f"Pari mi-temps spécial : {param}"
-    # Groupe 19 : options exotiques
+    # Groupe 19 : Options exotiques
     elif g == 19:
         return f"Option exotique (type {t})"
-    # Groupe 13 : buteur
+    # Groupe 13 : Buteur
     elif g == 13:
         return f"Buteur : {param}"
-    # Groupe 14 : temps du but
+    # Groupe 14 : Temps du but
     elif g == 14:
         return f"Premier but avant la {param}e minute"
-    # Groupe 9/10 : corners/cartons
+    # Groupes 9/10 : Corners/Cartons
     elif g == 9:
         if t == 9:
             return f"Plus de {param} corners"
@@ -691,10 +691,10 @@ def traduire_option_pari(opt, team1, team2):
             return f"Moins de {param} cartons"
         else:
             return f"Cartons spéciaux : {param}"
-    # Groupe 12 : score à la mi-temps
+    # Groupe 12 : Score à la mi-temps
     elif g == 12:
         return f"Score à la mi-temps : {param}"
-    # Groupe 18 : pari équipe
+    # Groupe 18 : Pari équipe
     elif g == 18:
         return f"Pari équipe : {param}"
     # Cas inconnu ou non géré
