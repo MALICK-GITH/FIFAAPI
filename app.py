@@ -265,61 +265,54 @@ def label_cote(t, g, p=None, sport="football"):
     return f"Type {t}/Groupe {g}" + (f" (paramètre {p})" if p is not None else "")
 
 def predire_auto(match):
-    # Nouvelle prédiction : priorité au total de buts, puis handicap, puis (futur) pair/impair
+    # Prédiction automatique basée sur la cote la plus basse dans la plage 1.350 à 2.984 (tous types confondus)
     options = []
-    # 1. Total de buts (G:17, T:9/10)
-    for group in match.get("AE", []):
-        if group.get("G") == 17:
-            for me in group.get("ME", []):
-                cote = me.get("C")
-                t = me.get("T")
-                p = me.get("P")
-                try:
-                    cote_f = float(cote)
-                except:
-                    continue
-                if 1.399 <= cote_f <= 3:
-                    if t == 9:
-                        options.append((f"Plus de {p} buts", cote_f))
-                    elif t == 10:
-                        options.append((f"Moins de {p} buts", cote_f))
-    # 2. Handicap (G:2, T:7/8)
-    for group in match.get("AE", []):
-        if group.get("G") == 2:
-            for me in group.get("ME", []):
-                cote = me.get("C")
-                t = me.get("T")
-                p = me.get("P")
-                try:
-                    cote_f = float(cote)
-                except:
-                    continue
-                if 1.399 <= cote_f <= 3:
-                    if t == 7:
-                        if p is not None:
-                            options.append((f"Handicap équipe 1 ({p:+})", cote_f))
-                        else:
-                            options.append(("Handicap équipe 1", cote_f))
-                    elif t == 8:
-                        if p is not None:
-                            options.append((f"Handicap équipe 2 ({p:+})", cote_f))
-                        else:
-                            options.append(("Handicap équipe 2", cote_f))
-    # 3. (Futur) Total pair/impair (à activer si présent dans la structure)
-    # for group in match.get("AE", []):
-    #     if group.get("G") == XX:  # À compléter si on trouve la structure
-    #         ...
+    # Cotes principales (1X2)
+    odds = match.get("E", [])
+    for o in odds:
+        cotes = o.get("C", [])
+        if not isinstance(cotes, list):
+            continue  # Ignore si ce n'est pas une liste
+        for v in cotes:
+            nom = v.get("N")
+            cote = v.get("V")
+            try:
+                cote_f = float(cote)
+            except:
+                continue
+            if nom and 1.350 <= cote_f <= 2.984:
+                options.append((nom, cote_f))
+    # Cotes avancées (AE)
+    ae = match.get("AE", [])
+    for group in ae:
+        g = group.get("G")
+        for me in group.get("ME", []):
+            nom = label_cote(me.get("T"), g, me.get("P"))
+            cote = me.get("C")
+            try:
+                cote_f = float(cote)
+            except:
+                continue
+            if nom and 1.350 <= cote_f <= 2.984:
+                options.append((nom, cote_f))
     if not options:
-        return "Aucune prédiction disponible pour ce match."
-    # On trie par cote croissante
+        return "Aucune prédiction disponible"
+    # On trie les options par cote croissante
     options_sorted = sorted(options, key=lambda x: x[1])
     best = options_sorted[0]
-    # On peut aussi proposer la 2e option si la cote est proche
-    msg = f"<b>Conseil du bot :</b> <i>{best[0]}</i> (Cote : <b>{best[1]}</b>)\n"
-    if len(options_sorted) > 1 and abs(options_sorted[1][1] - best[1]) < 0.25:
-        msg += f"\nAlternative : <i>{options_sorted[1][0]}</i> (Cote : <b>{options_sorted[1][1]}</b>)"
-    msg += "\n⚡️ Prédiction basée sur les marchés Total de buts et Handicap."
-    return msg
+    if len(options_sorted) > 1:
+        second = options_sorted[1]
+        ecart = round(second[1] - best[1], 3)
+    else:
+        ecart = None
+    # Indice de confiance
+    if ecart is None or ecart > 0.40:
+        confiance = "✅ élevée"
+    elif 0.20 < ecart <= 0.40:
+        confiance = "⚠️ moyenne"
+    else:
+        confiance = "❗ faible"
+    return f"<b>{best[0]}</b> (Cote : <b>{best[1]}</b>)\nConfiance : {confiance}"
 
 def format_match_complet(match):
     t1 = match.get("O1", "Équipe 1")
@@ -591,15 +584,21 @@ async def mesabos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             txt = "\n".join(f"• <b>{a}</b>" for a in chunk)
             await send_html_long_message(context.bot, update.message.chat_id, f"<b>Vos abonnements :</b>\n{txt}", parse_mode="HTML")
 
-from telegram.ext import ApplicationBuilder, CommandHandler
-
-async def start(update, context):
-    await update.message.reply_text("Salut, bot opérationnel!")
-
 def main():
-    app = ApplicationBuilder().token("TON_TOKEN").build()
+    app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("lang", lang_cmd))
+    app.add_handler(CommandHandler("matchs", show_matches))
+    app.add_handler(CommandHandler("abonner", abonner_cmd))
+    app.add_handler(CommandHandler("desabonner", desabonner_cmd))
+    app.add_handler(CommandHandler("mesabos", mesabos_cmd))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_error_handler(error_handler)
+    # Lancer la surveillance des buts
+    loop = asyncio.get_event_loop()
+    loop.create_task(periodic_check_goals(app))
     app.run_polling()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
