@@ -1,604 +1,433 @@
+from flask import Flask, request, render_template_string
 import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
-import logging
-from datetime import datetime
-import asyncio
-import random
+import os
+import datetime
+import json
 
-# Configuration du logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+app = Flask(__name__)
 
-TOKEN = "8038812221:AAFt5ghu1jep8qMyBMXP0-SSPBMjSrNdWmk"
-
-# Pagination : nombre de matchs par page
-MATCHS_PAR_PAGE = 5
-
-# Langues supportées
-LANGS = {
-    'fr': {
-        'start': "👋 Salut ! Je suis ton bot des cotes en direct pour le <b>FIFA virtuel</b> !\n\n"
-                 "⚡️ Seuls les matchs de FIFA virtuel (e-sport) sont affichés.\n\n"
-                 "Utilise /matchs pour voir les matchs en cours avec leurs scores, cotes et statistiques.\n\n"
-                 "<b>Commandes principales :</b>\n/start - Message de bienvenue\n/matchs [page] [compétition] - Affiche les matchs en direct\n/lang [fr|en] - Change la langue\n/help - Affiche cette aide\n/abonner [équipe|compétition] - Reçois des notifications de buts\n/desabonner [équipe|compétition] - Arrête les notifications\n/mesabos - Liste tes abonnements\n\n<b>NOUVEAU :</b>\n/predire [équipe1] [équipe2] - Obtiens une prédiction intelligente basée sur l'historique des confrontations et la forme récente (ex: /predire PSG Marseille)",
-        'help': "<b>Commandes disponibles :</b>\n\n/start - Message de bienvenue\n/matchs [page] [compétition] - Affiche les matchs en direct (ex: /matchs 2 Ligue 1)\n/lang [fr|en] - Change la langue\n/abonner [équipe|compétition] - Reçois des notifications de buts pour une équipe ou une compétition (ex: /abonner PSG)\n/desabonner [équipe|compétition] - Arrête les notifications pour une équipe ou une compétition\n/mesabos - Affiche la liste de tes abonnements\n/help - Affiche cette aide\n\n<b>Prédiction IA :</b>\n/predire [équipe1] [équipe2] - Obtiens une prédiction intelligente basée sur :\n- Les 5 dernières confrontations directes entre les deux équipes\n- La forme récente (5 derniers matchs) de chaque équipe, tous adversaires confondus\n\nExemple : /predire PSG Marseille\n\nLa prédiction combine ces éléments pour donner un résultat plus fiable (V = victoire, N = nul, D = défaite).",
-        'no_match': "❌ Aucun match trouvé pour le moment. Réessaie plus tard.",
-        'matches_title': "\U0001F3C6 <b>Matchs en direct</b> :\n\n",
-        'competition': "\u2B50 Compétition",
-        'time': "\u23F0 Heure",
-        'score': "\U0001F522 Score",
-        'odds': "\U0001F4B0 Cotes principales",
-        'stats': "\U0001F4CA <u>Statistiques principales</u> :",
-        'page': "Page",
-        'no_odds': "Aucune cote disponible",
-        'lang_set': "Langue changée en français !",
-        'usage': "Utilisation : /matchs [page] [compétition]"
-    },
-    'en': {
-        'start': "👋 Hi! I'm your live odds bot!\n\nUse /matchs to see live matches with scores, odds and stats.\n\n<b>Main commands:</b>\n/start - Welcome message\n/matchs [page] [competition] - Show live matches\n/lang [fr|en] - Change language\n/help - Show this help\n/abonner [team|competition] - Get goal notifications\n/desabonner [team|competition] - Stop notifications\n/mesabos - List your subscriptions",
-        'help': "<b>Available commands:</b>\n\n/start - Welcome message\n/matchs [page] [competition] - Show live matches (ex: /matchs 2 Premier League)\n/lang [fr|en] - Change language\n/abonner [team|competition] - Get goal notifications for a team or competition (ex: /abonner PSG)\n/desabonner [team|competition] - Stop notifications for a team or competition\n/mesabos - Show your subscriptions\n/help - Show this help",
-        'no_match': "❌ No matches found at the moment. Try again later.",
-        'matches_title': "\U0001F3C6 <b>Live matches</b> :\n\n",
-        'competition': "\u2B50 Competition",
-        'time': "\u23F0 Time",
-        'score': "\U0001F522 Score",
-        'odds': "\U0001F4B0 Main odds",
-        'stats': "\U0001F4CA <u>Main stats</u> :",
-        'page': "Page",
-        'no_odds': "No odds available",
-        'lang_set': "Language set to English!",
-        'usage': "Usage: /matchs [page] [competition]"
-    }
-}
-
-# Stocke la langue de chaque utilisateur
-user_lang = {}
-# Stocke les scores précédents pour la détection de buts
-previous_scores = {}
-# Stocke les utilisateurs ayant interagi avec le bot
-users_interested = set()
-# Stocke les abonnements des utilisateurs : {user_id: set(noms)}
-user_subs = {}
-
-def get_lang(user_id):
-    return user_lang.get(user_id, 'fr')
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    users_interested.add(update.effective_user.id)
-    lang = get_lang(update.effective_user.id)
-    await send_long_message(context.bot, update.message.chat_id, LANGS[lang]['start'])
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    users_interested.add(update.effective_user.id)
-    lang = get_lang(update.effective_user.id)
-    await send_long_message(context.bot, update.message.chat_id, LANGS[lang]['help'], parse_mode="HTML")
-
-async def lang_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    users_interested.add(update.effective_user.id)
-    if context.args and context.args[0] in LANGS:
-        user_lang[update.effective_user.id] = context.args[0]
-        await send_long_message(context.bot, update.message.chat_id, LANGS[context.args[0]]['lang_set'])
-    else:
-        await send_long_message(context.bot, update.message.chat_id, "/lang fr ou /lang en")
-
-def fetch_matches():
-    url = "https://1xbet.com/LiveFeed/Get1x2_VZip?sports=85&count=50&lng=fr&gr=70&mode=4&country=96&getEmpty=true"
-    headers = {"User-Agent": "Mozilla/5.0"}
+@app.route('/')
+def home():
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        return response.json().get("Value", [])
+        selected_sport = request.args.get("sport", "").strip()
+        selected_league = request.args.get("league", "").strip()
+        selected_status = request.args.get("status", "").strip()
+        source = request.args.get("source", "api").strip().lower()
+
+        matches = []
+        if source == "json":
+            # Lecture du fichier local
+            with open("Get1x2_VZip.json", "r", encoding="utf-8") as f:
+                data_json = json.load(f)
+                matches = data_json.get("Value", [])
+        else:
+            api_url = "https://1xbet.com/LiveFeed/Get1x2_VZip?sports=85&count=50&lng=fr&gr=70&mode=4&country=96&getEmpty=true"
+            try:
+                response = requests.get(api_url, timeout=5)
+                matches = response.json().get("Value", [])
+            except Exception as e:
+                # Si l'API échoue, fallback sur le fichier local
+                try:
+                    with open("Get1x2_VZip.json", "r", encoding="utf-8") as f:
+                        data_json = json.load(f)
+                        matches = data_json.get("Value", [])
+                except Exception as e2:
+                    return f"Erreur lors de la récupération des données : {e} / {e2}"
+
+        sports_detected = set()
+        leagues_detected = set()
+        data = []
+
+        for match in matches:
+            try:
+                league = match.get("LE", "–")
+                team1 = match.get("O1", "–")
+                team2 = match.get("O2", "–")
+                sport = detect_sport(league).strip()
+                sports_detected.add(sport)
+                leagues_detected.add(league)
+
+                # --- Score ---
+                score1 = match.get("SC", {}).get("FS", {}).get("S1")
+                score2 = match.get("SC", {}).get("FS", {}).get("S2")
+                try:
+                    score1 = int(score1) if score1 is not None else 0
+                except:
+                    score1 = 0
+                try:
+                    score2 = int(score2) if score2 is not None else 0
+                except:
+                    score2 = 0
+
+                # --- Minute ---
+                minute = None
+                # Prendre d'abord SC.TS (temps écoulé en secondes)
+                sc = match.get("SC", {})
+                if "TS" in sc and isinstance(sc["TS"], int):
+                    minute = sc["TS"] // 60
+                elif "ST" in sc and isinstance(sc["ST"], int):
+                    minute = sc["ST"]
+                elif "T" in match and isinstance(match["T"], int):
+                    minute = match["T"] // 60
+
+                # --- Statut ---
+                tn = match.get("TN", "").lower()
+                tns = match.get("TNS", "").lower()
+                tt = match.get("SC", {}).get("TT")
+                statut = "À venir"
+                is_live = False
+                is_finished = False
+                is_upcoming = False
+                if (minute is not None and minute > 0) or (score1 > 0 or score2 > 0):
+                    statut = f"En cours ({minute}′)" if minute else "En cours"
+                    is_live = True
+                if ("terminé" in tn or "terminé" in tns) or (tt == 3):
+                    statut = "Terminé"
+                    is_live = False
+                    is_finished = True
+                if statut == "À venir":
+                    is_upcoming = True
+
+                if selected_sport and sport != selected_sport:
+                    continue
+                if selected_league and league != selected_league:
+                    continue
+                if selected_status == "live" and not is_live:
+                    continue
+                if selected_status == "finished" and not is_finished:
+                    continue
+                if selected_status == "upcoming" and not is_upcoming:
+                    continue
+
+                match_ts = match.get("S", 0)
+                match_time = datetime.datetime.utcfromtimestamp(match_ts).strftime('%d/%m/%Y %H:%M') if match_ts else "–"
+
+                # --- Cotes ---
+                odds_data = []
+                # 1. Chercher dans E (G=1)
+                for o in match.get("E", []):
+                    if o.get("G") == 1 and o.get("T") in [1, 2, 3] and o.get("C") is not None:
+                        odds_data.append({
+                            "type": {1: "1", 2: "2", 3: "X"}.get(o.get("T")),
+                            "cote": o.get("C")
+                        })
+                # 2. Sinon, chercher dans AE
+                if not odds_data:
+                    for ae in match.get("AE", []):
+                        if ae.get("G") == 1:
+                            for o in ae.get("ME", []):
+                                if o.get("T") in [1, 2, 3] and o.get("C") is not None:
+                                    odds_data.append({
+                                        "type": {1: "1", 2: "2", 3: "X"}.get(o.get("T")),
+                                        "cote": o.get("C")
+                                    })
+                if not odds_data:
+                    formatted_odds = ["Pas de cotes disponibles"]
+                else:
+                    formatted_odds = [f"{od['type']}: {od['cote']}" for od in odds_data]
+
+                prediction = "–"
+                if odds_data:
+                    best = min(odds_data, key=lambda x: x["cote"])
+                    prediction = {
+                        "1": f"{team1} gagne",
+                        "2": f"{team2} gagne",
+                        "X": "Match nul"
+                    }.get(best["type"], "–")
+
+                # --- Météo ---
+                meteo_data = match.get("MIS", [])
+                temp = next((item["V"] for item in meteo_data if item.get("K") == 9), "–")
+                humid = next((item["V"] for item in meteo_data if item.get("K") == 27), "–")
+
+                data.append({
+                    "team1": team1,
+                    "team2": team2,
+                    "score1": score1,
+                    "score2": score2,
+                    "league": league,
+                    "sport": sport,
+                    "status": statut,
+                    "datetime": match_time,
+                    "temp": temp,
+                    "humid": humid,
+                    "odds": formatted_odds,
+                    "prediction": prediction,
+                    "id": match.get("I", None)
+                })
+            except Exception as e:
+                print(f"Erreur lors du traitement d'un match: {e}")
+                continue
+
+        # --- Pagination ---
+        try:
+            page = int(request.args.get('page', 1))
+        except:
+            page = 1
+        per_page = 20
+        total = len(data)
+        total_pages = (total + per_page - 1) // per_page
+        data_paginated = data[(page-1)*per_page:page*per_page]
+
+        return render_template_string(TEMPLATE, data=data_paginated,
+            sports=sorted(sports_detected),
+            leagues=sorted(leagues_detected),
+            selected_sport=selected_sport or "Tous",
+            selected_league=selected_league or "Toutes",
+            selected_status=selected_status or "Tous",
+            page=page,
+            total_pages=total_pages
+        )
+
     except Exception as e:
-        logger.error(f"Erreur lors de la récupération des matchs : {e}")
-        return []
+        return f"Erreur : {e}"
 
-def format_score(score_dict):
-    if not score_dict:
-        return "Non disponible"
-    home = score_dict.get("1", 0)
-    away = score_dict.get("2", 0)
-    return f"{home} - {away}"
-
-def format_odds(match):
-    odds = match.get("E", [])
-    if not odds:
-        return None
-    main_odds = []
-    for o in odds:
-        if o.get("T") == 1:  # Type 1 = 1X2
-            cotes = o.get("C", [])
-            if not isinstance(cotes, list):
-                continue  # Ignore si ce n'est pas une liste
-            for v in cotes:
-                nom = v.get("N")
-                cote = v.get("V")
-                if nom and cote:
-                    main_odds.append(f"{nom}: <b>{cote}</b>")
-    return " | ".join(main_odds) if main_odds else None
-
-# Ajout d'une fonction pour détecter le sport
-SPORTS_EMOJIS = {
-    'football': '⚽',
-    'tennis': '🎾',
-    'volleyball': '🏐',
-    'cricket': '🏏',
-    'basketball': '🏀',
-    'hockey': '🏒',
-    'default': '🏆'
-}
-
-def detect_sport(ligue, heure):
-    l = ligue.lower()
-    h = str(heure).lower()
-    if 'foot' in l or 'foot' in h:
-        return 'football'
-    if 'tennis' in l or 'tennis' in h:
-        return 'tennis'
-    if 'volley' in l or 'volley' in h:
-        return 'volleyball'
-    if 'cricket' in l or 'cricket' in h:
-        return 'cricket'
-    if 'basket' in l or 'basket' in h:
-        return 'basketball'
-    if 'hockey' in l or 'hockey' in h:
-        return 'hockey'
-    return 'default'
-
-def format_heure(se, stats, score):
-    # se peut être un dict, une string, ou absent
-    if isinstance(se, dict):
-        heure = se.get("S")
+def detect_sport(league_name):
+    league = league_name.lower()
+    if any(word in league for word in ["wta", "atp", "tennis"]):
+        return "Tennis"
+    elif any(word in league for word in ["basket", "nbl", "nba", "ipbl"]):
+        return "Basketball"
+    elif "hockey" in league:
+        return "Hockey"
+    elif any(word in league for word in ["tbl", "table"]):
+        return "Table Basketball"
+    elif "cricket" in league:
+        return "Cricket"
     else:
-        heure = se if se else None
-    # Si heure ressemble à une date/heure, tente de la parser
-    if heure:
+        return "Football"
+
+@app.route('/match/<int:match_id>')
+def match_details(match_id):
+    try:
+        # Récupérer les données de l'API (ou brute.json si besoin)
+        api_url = "https://1xbet.com/LiveFeed/Get1x2_VZip?sports=85&count=50&lng=fr&gr=70&mode=4&country=96&getEmpty=true"
+        response = requests.get(api_url)
+        matches = response.json().get("Value", [])
+        match = next((m for m in matches if m.get("I") == match_id), None)
+        if not match:
+            return f"Aucun match trouvé pour l'identifiant {match_id}"
+        # Infos principales
+        team1 = match.get("O1", "–")
+        team2 = match.get("O2", "–")
+        league = match.get("LE", "–")
+        sport = detect_sport(league)
+        # Scores
+        score1 = match.get("SC", {}).get("FS", {}).get("S1")
+        score2 = match.get("SC", {}).get("FS", {}).get("S2")
         try:
-            # Exemple de format possible : '2024-06-20T18:00:00Z'
-            dt = datetime.fromisoformat(heure.replace('Z', '+00:00'))
-            return dt.strftime('%d/%m %H:%M')
-        except Exception:
-            # Si ce n'est pas une date, retourne la valeur brute
-            return heure
-    # Si stats ou score sont présents, on suppose que c'est en cours
-    if stats or score:
-        return "En cours"
-    return "Heure non précisée"
-
-# Ajout des statuts possibles
-STATUTS = ["en_cours", "a_venir", "termine"]
-STATUTS_LABELS = {
-    "en_cours": "En cours",
-    "a_venir": "À venir",
-    "termine": "Terminé"
-}
-
-# Fonction pour déterminer le statut d'un match
-def get_statut_match(heure, stats, score):
-    if heure and ("en cours" in heure.lower() or "live" in heure.lower()):
-        return "en_cours"
-    if stats or score:
-        return "en_cours"
-    if heure and ("termine" in heure.lower() or "fin" in heure.lower()):
-        return "termine"
-    return "a_venir"
-
-# Fonction pour extraire la liste des sports et compétitions présents dans les matchs
-def extraire_sports_competitions(matchs):
-    sports = set()
-    competitions = set()
-    for match in matchs:
-        ligue = match.get("L") or "Compétition non renseignée"
-        se = match.get("SE", {})
-        stats = match.get("SC", {}).get("ST", [])
-        score = match.get("SC", {}).get("FS", {})
-        heure_affichee = format_heure(se, stats, score)
-        sport = detect_sport(ligue, heure_affichee)
-        sports.add(sport)
-        competitions.add(ligue)
-    return sorted(sports), sorted(competitions)
-
-# Fonction utilitaire pour découper les messages trop longs
-async def send_long_message(bot, chat_id, text, **kwargs):
-    max_len = 4096
-    for i in range(0, len(text), max_len):
-        await bot.send_message(chat_id=chat_id, text=text[i:i+max_len], **kwargs)
-
-# Fonction utilitaire pour découper une liste en sous-listes de taille n
-def chunk_list(lst, n):
-    for i in range(0, len(lst), n):
-        yield lst[i:i + n]
-
-# Fonction utilitaire pour envoyer un message HTML long sans dépasser 4096 caractères, en découpant à la fin d'une ligne
-async def send_html_long_message(bot, chat_id, text, **kwargs):
-    MAX_LEN = 4096
-    lines = text.split('\n')
-    part = ''
-    for line in lines:
-        if len(part) + len(line) + 1 > MAX_LEN:
-            await bot.send_message(chat_id=chat_id, text=part, **kwargs)
-            part = ''
-        part += line + '\n'
-    if part.strip():
-        await bot.send_message(chat_id=chat_id, text=part, **kwargs)
-
-def label_cote(t, g, p=None, sport="football"):
-    # 1X2
-    if g == 1:
-        if t == 1:
-            return "Victoire équipe 1"
-        elif t == 2:
-            return "Match nul"
-        elif t == 3:
-            return "Victoire équipe 2"
-    # Handicap
-    if g == 2:
-        if t == 7:
-            return f"Handicap équipe 1 (écart {p})"
-        elif t == 8:
-            return f"Handicap équipe 2 (écart {p})"
-    # Over/Under
-    if g == 17:
-        if t == 9:
-            return f"Plus de {p} buts"
-        elif t == 10:
-            return f"Moins de {p} buts"
-    # Score exact
-    if g == 15:
-        if t == 11:
-            return f"Score exact équipe 1 : {p}"
-        elif t == 12:
-            return f"Score exact équipe 2 : {p}"
-    # Total équipe 1/2
-    if g == 62:
-        if t == 13:
-            return f"Total buts équipe 1 : plus de {p}"
-        elif t == 14:
-            return f"Total buts équipe 2 : plus de {p}"
-    # Mi-temps
-    if g == 19:
-        if t == 180:
-            return "Victoire équipe 1 à la mi-temps"
-        elif t == 181:
-            return "Victoire équipe 2 à la mi-temps"
-    # Ajoute ici d'autres mappings selon les besoins
-    return f"Type {t}/Groupe {g}" + (f" (paramètre {p})" if p is not None else "")
-
-def predire_auto(match):
-    # Prédiction automatique basée sur la cote la plus basse dans la plage 1.350 à 2.984 (tous types confondus)
-    options = []
-    # Cotes principales (1X2)
-    odds = match.get("E", [])
-    for o in odds:
-        cotes = o.get("C", [])
-        if not isinstance(cotes, list):
-            continue  # Ignore si ce n'est pas une liste
-        for v in cotes:
-            nom = v.get("N")
-            cote = v.get("V")
-            try:
-                cote_f = float(cote)
-            except:
-                continue
-            if nom and 1.350 <= cote_f <= 2.984:
-                options.append((nom, cote_f))
-    # Cotes avancées (AE)
-    ae = match.get("AE", [])
-    for group in ae:
-        g = group.get("G")
-        for me in group.get("ME", []):
-            nom = label_cote(me.get("T"), g, me.get("P"))
-            cote = me.get("C")
-            try:
-                cote_f = float(cote)
-            except:
-                continue
-            if nom and 1.350 <= cote_f <= 2.984:
-                options.append((nom, cote_f))
-    if not options:
-        return "Aucune prédiction disponible"
-    # On trie les options par cote croissante
-    options_sorted = sorted(options, key=lambda x: x[1])
-    best = options_sorted[0]
-    if len(options_sorted) > 1:
-        second = options_sorted[1]
-        ecart = round(second[1] - best[1], 3)
-    else:
-        ecart = None
-    # Indice de confiance
-    if ecart is None or ecart > 0.40:
-        confiance = "✅ élevée"
-    elif 0.20 < ecart <= 0.40:
-        confiance = "⚠️ moyenne"
-    else:
-        confiance = "❗ faible"
-    return f"<b>{best[0]}</b> (Cote : <b>{best[1]}</b>)\nConfiance : {confiance}"
-
-def format_match_complet(match):
-    t1 = match.get("O1", "Équipe 1")
-    t2 = match.get("O2", "Équipe 2")
-    ligue = match.get("L", "Compétition non renseignée")
-    ligue_en = match.get("LE", "")
-    cid = match.get("CID", "")
-    sport = match.get("SE", match.get("SN", "?"))
-    heure = match.get("S")
-    heure_fmt = ""
-    if heure:
+            score1 = int(score1) if score1 is not None else 0
+        except:
+            score1 = 0
         try:
-            heure_fmt = datetime.utcfromtimestamp(int(heure)).strftime('%d/%m/%Y %H:%M')
-        except Exception:
-            heure_fmt = str(heure)
-    score = match.get("SC", {}).get("FS", {})
-    stats = []
-    for group in match.get("SC", {}).get("ST", []):
-        for s in group.get("Value", []):
-            nom = s.get("N")
-            s1 = s.get("S1", "-")
-            s2 = s.get("S2", "-")
-            stats.append(f"  • <i>{nom}</i> : <b>{t1} {s1}</b> / <b>{t2} {s2}</b>")
-    odds = match.get("E", [])
-    odds_txt = []
-    for o in odds:
-        cote = o.get("C")
-        t = o.get("T")
-        g = o.get("G")
-        p = o.get("P", None)
-        ce = o.get("CE", None)
-        odds_txt.append(f"{label_cote(t, g, p)} : <b>{cote}</b>")
-    ae = match.get("AE", [])
-    ae_txt = []
-    for group in ae:
-        g = group.get("G")
-        for me in group.get("ME", []):
-            cote = me.get("C")
-            t = me.get("T")
-            p = me.get("P", None)
-            ce = me.get("CE", None)
-            ae_txt.append(f"[AE] {label_cote(t, g, p)} : <b>{cote}</b>")
-    # Prédiction automatique
-    prediction = predire_auto(match)
-    msg = f"<b>{t1}</b> <i>vs</i> <b>{t2}</b>\n"
-    msg += f"🏆 <b>Compétition :</b> <i>{ligue}</i> ({ligue_en}) [CID: {cid}]\n"
-    msg += f"🏅 <b>Sport :</b> <i>{sport}</i>\n"
-    if heure_fmt:
-        msg += f"⏰ <b>Heure :</b> <i>{heure_fmt}</i>\n"
-    msg += f"🔢 <b>Score :</b> <b>{score}</b>\n"
-    if odds_txt:
-        msg += "💰 <b>Cotes principales :</b>\n" + "\n".join(odds_txt) + "\n"
-    if ae_txt:
-        msg += "💸 <b>Cotes avancées :</b>\n" + "\n".join(ae_txt) + "\n"
-    if stats:
-        msg += "📊 <b>Statistiques :</b>\n" + "\n".join(stats) + "\n"
-    # Section prédiction bien visible
-    msg += f"\n🔮 <b>Prédiction automatique :</b> {prediction}\n"
-    return msg
+            score2 = int(score2) if score2 is not None else 0
+        except:
+            score2 = 0
+        # Statistiques avancées
+        stats = []
+        st = match.get("SC", {}).get("ST", [])
+        if st and isinstance(st, list) and len(st) > 0 and "Value" in st[0]:
+            for stat in st[0]["Value"]:
+                nom = stat.get("N", "?")
+                s1 = stat.get("S1", "0")
+                s2 = stat.get("S2", "0")
+                stats.append({"nom": nom, "s1": s1, "s2": s2})
+        # Explication prédiction (simple)
+        explication = "La prédiction est basée sur les cotes et les statistiques principales (tirs, possession, etc.)."  # Peut être enrichi
+        # Prédiction
+        odds_data = []
+        for o in match.get("E", []):
+            if o.get("G") == 1 and o.get("T") in [1, 2, 3] and o.get("C") is not None:
+                odds_data.append({
+                    "type": {1: "1", 2: "2", 3: "X"}.get(o.get("T")),
+                    "cote": o.get("C")
+                })
+        if not odds_data:
+            for ae in match.get("AE", []):
+                if ae.get("G") == 1:
+                    for o in ae.get("ME", []):
+                        if o.get("T") in [1, 2, 3] and o.get("C") is not None:
+                            odds_data.append({
+                                "type": {1: "1", 2: "2", 3: "X"}.get(o.get("T")),
+                                "cote": o.get("C")
+                            })
+        prediction = "–"
+        if odds_data:
+            best = min(odds_data, key=lambda x: x["cote"])
+            prediction = {
+                "1": f"{team1} gagne",
+                "2": f"{team2} gagne",
+                "X": "Match nul"
+            }.get(best["type"], "–")
+        # HTML avec graphiques Chart.js CDN
+        return f'''
+        <!DOCTYPE html>
+        <html><head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Détails du match</title>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <style>
+                body {{ font-family: Arial; padding: 20px; background: #f4f4f4; }}
+                .container {{ max-width: 700px; margin: auto; background: white; border-radius: 10px; box-shadow: 0 2px 8px #ccc; padding: 20px; }}
+                h2 {{ text-align: center; }}
+                .stats-table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                .stats-table th, .stats-table td {{ border: 1px solid #ccc; padding: 8px; text-align: center; }}
+                .back-btn {{ margin-bottom: 20px; display: inline-block; }}
+            </style>
+        </head><body>
+            <div class="container">
+                <a href="/" class="back-btn">&larr; Retour à la liste</a>
+                <h2>{team1} vs {team2}</h2>
+                <p><b>Ligue :</b> {league} | <b>Sport :</b> {sport}</p>
+                <p><b>Score :</b> {score1} - {score2}</p>
+                <p><b>Prédiction du bot :</b> {prediction}</p>
+                <p><b>Explication :</b> {explication}</p>
+                <h3>Statistiques principales</h3>
+                <table class="stats-table">
+                    <tr><th>Statistique</th><th>{team1}</th><th>{team2}</th></tr>
+                    {''.join(f'<tr><td>{s["nom"]}</td><td>{s["s1"]}</td><td>{s["s2"]}</td></tr>' for s in stats)}
+                </table>
+                <canvas id="statsChart" height="200"></canvas>
+            </div>
+            <script>
+                const labels = { [repr(s['nom']) for s in stats] };
+                const data1 = { [float(s['s1']) if s['s1'].replace('.', '', 1).isdigit() else 0 for s in stats] };
+                const data2 = { [float(s['s2']) if s['s2'].replace('.', '', 1).isdigit() else 0 for s in stats] };
+                new Chart(document.getElementById('statsChart'), {{
+                    type: 'bar',
+                    data: {{
+                        labels: labels,
+                        datasets: [
+                            {{ label: '{team1}', data: data1, backgroundColor: 'rgba(44,62,80,0.7)' }},
+                            {{ label: '{team2}', data: data2, backgroundColor: 'rgba(39,174,96,0.7)' }}
+                        ]
+                    }},
+                    options: {{ responsive: true, plugins: {{ legend: {{ position: 'top' }} }} }}
+                }});
+            </script>
+        </body></html>
+        '''
+    except Exception as e:
+        return f"Erreur lors de l'affichage des détails du match : {e}"
 
-# Adaptation de show_matches pour supporter les filtres
-async def show_matches(update: Update, context: ContextTypes.DEFAULT_TYPE, filtres=None):
-    users_interested.add(update.effective_user.id)
-    lang = get_lang(update.effective_user.id)
-    args = context.args if hasattr(context, 'args') else []
-    page = 1
-    competition = None
-    sport_filtre = None
-    statut_filtre = None
-    if filtres:
-        sport_filtre = filtres.get('sport')
-        competition = filtres.get('competition')
-        statut_filtre = filtres.get('statut')
-    if args:
-        for arg in args:
-            if arg.isdigit():
-                page = int(arg)
-            else:
-                competition = arg.lower()
-    matchs = fetch_matches()
-    # Application des filtres
-    if sport_filtre:
-        matchs = [m for m in matchs if detect_sport(m.get("L", ""), format_heure(m.get("SE", {}), m.get("SC", {}).get("ST", []), m.get("SC", {}).get("FS", {}))) == sport_filtre]
-    if competition:
-        matchs = [m for m in matchs if competition in (m.get("L", "").lower())]
-    if statut_filtre:
-        matchs = [m for m in matchs if get_statut_match(format_heure(m.get("SE", {}), m.get("SC", {}).get("ST", []), m.get("SC", {}).get("FS", {})), m.get("SC", {}).get("ST", []), m.get("SC", {}).get("FS", {})) == statut_filtre]
-    if not matchs:
-        msg_no = "❌ Aucun match FIFA virtuel en cours. Réessaie dans quelques minutes !"
-        if update.message:
-            await send_long_message(context.bot, update.message.chat_id, msg_no)
-        elif update.callback_query:
-            await send_long_message(context.bot, update.callback_query.message.chat_id, msg_no)
-        return
-    total_pages = (len(matchs) + MATCHS_PAR_PAGE - 1) // MATCHS_PAR_PAGE
-    page = max(1, min(page, total_pages))
-    start_idx = (page - 1) * MATCHS_PAR_PAGE
-    end_idx = start_idx + MATCHS_PAR_PAGE
-    matchs_page = matchs[start_idx:end_idx]
-    MATCHS_PAR_MESSAGE = 5  # Nombre de matchs par message HTML envoyé
-    for chunk in chunk_list(matchs_page, MATCHS_PAR_MESSAGE):
-        message = "⚡️ <b>Matchs FIFA virtuel en direct</b> :\n\n"
-        for i, match in enumerate(chunk, start_idx + 1):
-            # 3. Envoi des logos d'équipes si disponibles
-            if 'O1IMG' in match and match['O1IMG']:
-                try:
-                    await context.bot.send_photo(
-                        update.message.chat_id if update.message else update.callback_query.message.chat_id,
-                        photo="https://1xbet.com/" + match['O1IMG'][0]
-                    )
-                except Exception:
-                    pass
-            if 'O2IMG' in match and match['O2IMG']:
-                try:
-                    await context.bot.send_photo(
-                        update.message.chat_id if update.message else update.callback_query.message.chat_id,
-                        photo="https://1xbet.com/" + match['O2IMG'][0]
-                    )
-                except Exception:
-                    pass
-            message += format_match_complet(match) + "\n\n"
-        message += f"<i>Page {page}/{total_pages}</i>"
-        # 4. Boutons de navigation et de filtres (sans le filtre sport)
-        reply_markup = None
-        if chunk == list(chunk_list(matchs_page, MATCHS_PAR_MESSAGE))[0]:
-            _, competitions = extraire_sports_competitions(fetch_matches())
-            keyboard = []
-            filtres_btns = [
-                InlineKeyboardButton("Filtrer par compétition", callback_data="filtre_competition"),
-                InlineKeyboardButton("Filtrer par statut", callback_data="filtre_statut")
-            ]
-            keyboard.append(filtres_btns)
-            nav_btns = []
-            if page > 1:
-                nav_btns.append(InlineKeyboardButton("⬅️ Précédent", callback_data=f"matchs_{page-1}"))
-            if page < total_pages:
-                nav_btns.append(InlineKeyboardButton("Suivant ➡️", callback_data=f"matchs_{page+1}"))
-            if nav_btns:
-                keyboard.append(nav_btns)
-            reply_markup = InlineKeyboardMarkup(keyboard)
-        try:
-            if update.message:
-                await send_html_long_message(context.bot, update.message.chat_id, message, parse_mode="HTML", reply_markup=reply_markup)
-            elif update.callback_query:
-                await send_html_long_message(context.bot, update.callback_query.message.chat_id, message, parse_mode="HTML", reply_markup=reply_markup)
-        except Exception as e:
-            logger.error(f"Erreur lors de l'envoi du message : {e}")
-            if update.message:
-                await send_long_message(context.bot, update.message.chat_id, "❌ Erreur réseau ou API. Merci de réessayer plus tard.")
-            elif update.callback_query:
-                await send_long_message(context.bot, update.callback_query.message.chat_id, "❌ Erreur réseau ou API. Merci de réessayer plus tard.")
+TEMPLATE = """<!DOCTYPE html>
+<html><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Matchs en direct</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #f4f4f4; }
+        h2 { text-align: center; }
+        form { text-align: center; margin-bottom: 20px; }
+        select { padding: 8px; margin: 0 10px; font-size: 14px; }
+        table { border-collapse: collapse; margin: auto; width: 98%; background: white; }
+        th, td { padding: 10px; border: 1px solid #ccc; text-align: center; }
+        th { background: #2c3e50; color: white; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        .pagination { text-align: center; margin: 20px 0; }
+        .pagination button { padding: 8px 16px; margin: 0 4px; font-size: 16px; border: none; background: #2c3e50; color: white; border-radius: 4px; cursor: pointer; }
+        .pagination button:disabled { background: #ccc; cursor: not-allowed; }
+        /* Responsive */
+        @media (max-width: 800px) {
+            table, thead, tbody, th, td, tr { display: block; }
+            th { position: absolute; left: -9999px; top: -9999px; }
+            tr { margin-bottom: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 6px #ccc; }
+            td { border: none; border-bottom: 1px solid #eee; position: relative; padding-left: 50%; min-height: 40px; }
+            td:before { position: absolute; top: 10px; left: 10px; width: 45%; white-space: nowrap; font-weight: bold; }
+            td:nth-of-type(1):before { content: 'Équipe 1'; }
+            td:nth-of-type(2):before { content: 'Score 1'; }
+            td:nth-of-type(3):before { content: 'Score 2'; }
+            td:nth-of-type(4):before { content: 'Équipe 2'; }
+            td:nth-of-type(5):before { content: 'Sport'; }
+            td:nth-of-type(6):before { content: 'Ligue'; }
+            td:nth-of-type(7):before { content: 'Statut'; }
+            td:nth-of-type(8):before { content: 'Date & Heure'; }
+            td:nth-of-type(9):before { content: 'Température'; }
+            td:nth-of-type(10):before { content: 'Humidité'; }
+            td:nth-of-type(11):before { content: 'Cotes'; }
+            td:nth-of-type(12):before { content: 'Prédiction'; }
+        }
+        /* Loader */
+        #loader { display: none; position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; background: rgba(255,255,255,0.7); z-index: 9999; justify-content: center; align-items: center; }
+        #loader .spinner { border: 8px solid #f3f3f3; border-top: 8px solid #2c3e50; border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+    </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var forms = document.querySelectorAll('form');
+            forms.forEach(function(form) {
+                form.addEventListener('submit', function() {
+                    document.getElementById('loader').style.display = 'flex';
+                });
+            });
+        });
+    </script>
+</head><body>
+    <div id="loader"><div class="spinner"></div></div>
+    <h2>📊 Matchs en direct — {{ selected_sport }} / {{ selected_league }} / {{ selected_status }}</h2>
 
-# Handler pour les boutons de navigation et de filtres
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    filtres = getattr(context, 'filtres', {}) if hasattr(context, 'filtres') else {}
-    # Navigation page
-    if data.startswith("matchs_"):
-        page = int(data.split("_")[1])
-        context.args = [str(page)]
-        await show_matches(update, context, filtres)
-        return
-    # Filtres
-    if data == "filtre_sport":
-        sports, _ = extraire_sports_competitions(fetch_matches())
-        sport_btns = [[InlineKeyboardButton(SPORTS_EMOJIS.get(s, '🏆') + ' ' + s.capitalize(), callback_data=f"sport_{s}")] for s in sports]
-        await query.edit_message_text("Choisis un sport :", reply_markup=InlineKeyboardMarkup(sport_btns))
-        return
-    if data == "filtre_competition":
-        _, competitions = extraire_sports_competitions(fetch_matches())
-        comp_btns = [[InlineKeyboardButton(c, callback_data=f"competition_{c}")] for c in competitions]
-        await query.edit_message_text("Choisis une compétition :", reply_markup=InlineKeyboardMarkup(comp_btns))
-        return
-    if data == "filtre_statut":
-        statut_btns = [[InlineKeyboardButton(STATUTS_LABELS[s], callback_data=f"statut_{s}")] for s in STATUTS]
-        await query.edit_message_text("Choisis un statut :", reply_markup=InlineKeyboardMarkup(statut_btns))
-        return
-    # Application des filtres
-    if data.startswith("sport_"):
-        sport = data.split("_", 1)[1]
-        filtres['sport'] = sport
-        await show_matches(update, context, filtres)
-        return
-    if data.startswith("competition_"):
-        competition = data.split("_", 1)[1]
-        filtres['competition'] = competition.lower()
-        await show_matches(update, context, filtres)
-        return
-    if data.startswith("statut_"):
-        statut = data.split("_", 1)[1]
-        filtres['statut'] = statut
-        await show_matches(update, context, filtres)
-        return
+    <form method="get">
+        <label>Sport :
+            <select name="sport" onchange="this.form.submit()">
+                <option value="">Tous</option>
+                {% for s in sports %}
+                    <option value="{{s}}" {% if s == selected_sport %}selected{% endif %}>{{s}}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Ligue :
+            <select name="league" onchange="this.form.submit()">
+                <option value="">Toutes</option>
+                {% for l in leagues %}
+                    <option value="{{l}}" {% if l == selected_league %}selected{% endif %}>{{l}}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Statut :
+            <select name="status" onchange="this.form.submit()">
+                <option value="">Tous</option>
+                <option value="live" {% if selected_status == "live" %}selected{% endif %}>En direct</option>
+                <option value="upcoming" {% if selected_status == "upcoming" %}selected{% endif %}>À venir</option>
+                <option value="finished" {% if selected_status == "finished" %}selected{% endif %}>Terminé</option>
+            </select>
+        </label>
+    </form>
 
-# Handler d'erreur global pour Telegram
-async def error_handler(update, context):
-    logger.error(msg="Exception non gérée dans le handler", exc_info=context.error)
-    if update and hasattr(update, 'message') and update.message:
-        await send_long_message(context.bot, update.message.chat_id, "❌ Une erreur est survenue. Merci de réessayer plus tard.")
+    <div class="pagination">
+        <form method="get" style="display:inline;">
+            <input type="hidden" name="sport" value="{{ selected_sport if selected_sport != 'Tous' else '' }}">
+            <input type="hidden" name="league" value="{{ selected_league if selected_league != 'Toutes' else '' }}">
+            <input type="hidden" name="status" value="{{ selected_status if selected_status != 'Tous' else '' }}">
+            <button type="submit" name="page" value="{{ page-1 }}" {% if page <= 1 %}disabled{% endif %}>Page précédente</button>
+        </form>
+        <span>Page {{ page }} / {{ total_pages }}</span>
+        <form method="get" style="display:inline;">
+            <input type="hidden" name="sport" value="{{ selected_sport if selected_sport != 'Tous' else '' }}">
+            <input type="hidden" name="league" value="{{ selected_league if selected_league != 'Toutes' else '' }}">
+            <input type="hidden" name="status" value="{{ selected_status if selected_status != 'Tous' else '' }}">
+            <button type="submit" name="page" value="{{ page+1 }}" {% if page >= total_pages %}disabled{% endif %}>Page suivante</button>
+        </form>
+    </div>
 
-# Fonction périodique pour vérifier les buts
-async def periodic_check_goals(app):
-    while True:
-        matchs = fetch_matches()
-        for match in matchs:
-            match_id = match.get('I')
-            t1 = match.get("O1", "Équipe 1")
-            t2 = match.get("O2", "Équipe 2")
-            ligue = match.get("L") or "Compétition non renseignée"
-            score = match.get("SC", {}).get("FS", {})
-            buts_1 = score.get("1", 0)
-            buts_2 = score.get("2", 0)
-            prev = previous_scores.get(match_id, (buts_1, buts_2))
-            if (buts_1, buts_2) != prev:
-                # But détecté
-                if (buts_1 > prev[0]) or (buts_2 > prev[1]):
-                    for user_id in users_interested:
-                        abos = user_subs.get(user_id, set())
-                        # Si pas d'abonnement, on ne notifie pas
-                        if not abos:
-                            continue
-                        # On notifie si l'utilisateur est abonné à l'une des équipes ou à la compétition
-                        if (t1.lower() in abos) or (t2.lower() in abos) or (ligue.lower() in abos):
-                            try:
-                                await send_long_message(
-                                    app.bot,
-                                    user_id,
-                                    f"⚽️ <b>BUT !</b>\n{t1} {buts_1} - {buts_2} {t2}\nCompétition : <b>{ligue}</b>",
-                                    parse_mode="HTML"
-                                )
-                            except Exception as e:
-                                logger.error(f"Erreur notification but à {user_id} : {e}")
-            previous_scores[match_id] = (buts_1, buts_2)
-        await asyncio.sleep(30)  # Vérifie toutes les 30 secondes
+    <table>
+        <tr>
+            <th>Équipe 1</th><th>Score 1</th><th>Score 2</th><th>Équipe 2</th>
+            <th>Sport</th><th>Ligue</th><th>Statut</th><th>Date & Heure</th>
+            <th>Température</th><th>Humidité</th><th>Cotes</th><th>Prédiction</th><th>Détails</th>
+        </tr>
+        {% for m in data %}
+        <tr>
+            <td>{{m.team1}}</td><td>{{m.score1}}</td><td>{{m.score2}}</td><td>{{m.team2}}</td>
+            <td>{{m.sport}}</td><td>{{m.league}}</td><td>{{m.status}}</td><td>{{m.datetime}}</td>
+            <td>{{m.temp}}°C</td><td>{{m.humid}}%</td><td>{{m.odds|join(" | ")}}</td><td>{{m.prediction}}</td>
+            <td>{% if m.id %}<a href="/match/{{m.id}}"><button>Détails</button></a>{% else %}–{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body></html>"""
 
-async def abonner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not context.args:
-        await send_long_message(context.bot, update.message.chat_id, "Utilisation : /abonner [équipe ou compétition]")
-        return
-    nom = " ".join(context.args).strip().lower()
-    if not nom:
-        await send_long_message(context.bot, update.message.chat_id, "Nom d'équipe ou compétition invalide.")
-        return
-    user_subs.setdefault(user_id, set()).add(nom)
-    await send_long_message(context.bot, update.message.chat_id, f"✅ Abonnement à : <b>{nom}</b> enregistré !", parse_mode="HTML")
-
-async def desabonner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not context.args:
-        await send_long_message(context.bot, update.message.chat_id, "Utilisation : /desabonner [équipe ou compétition]")
-        return
-    nom = " ".join(context.args).strip().lower()
-    if user_id in user_subs and nom in user_subs[user_id]:
-        user_subs[user_id].remove(nom)
-        await send_long_message(context.bot, update.message.chat_id, f"❌ Désabonnement de : <b>{nom}</b> effectué.", parse_mode="HTML")
-    else:
-        await send_long_message(context.bot, update.message.chat_id, f"Vous n'étiez pas abonné à : <b>{nom}</b>.", parse_mode="HTML")
-
-async def mesabos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    abos = user_subs.get(user_id, set())
-    if not abos:
-        await send_long_message(context.bot, update.message.chat_id, "Vous n'avez aucun abonnement.")
-    else:
-        for chunk in chunk_list(list(abos), 50):
-            txt = "\n".join(f"• <b>{a}</b>" for a in chunk)
-            await send_html_long_message(context.bot, update.message.chat_id, f"<b>Vos abonnements :</b>\n{txt}", parse_mode="HTML")
-
-def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("lang", lang_cmd))
-    app.add_handler(CommandHandler("matchs", show_matches))
-    app.add_handler(CommandHandler("abonner", abonner_cmd))
-    app.add_handler(CommandHandler("desabonner", desabonner_cmd))
-    app.add_handler(CommandHandler("mesabos", mesabos_cmd))
-    app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_error_handler(error_handler)
-    # Lancer la surveillance des buts
-    loop = asyncio.get_event_loop()
-    loop.create_task(periodic_check_goals(app))
-    app.run_polling()
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+    
