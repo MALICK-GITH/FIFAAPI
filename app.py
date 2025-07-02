@@ -435,17 +435,95 @@ def extraire_ligue(match):
     }
 
 def extraire_match(match):
+    league = match.get("LE", "–")
+    team1 = match.get("O1", "–")
+    team2 = match.get("O2", "–")
+    sport = detect_sport(league).strip()
+    # Score
+    score1 = match.get("SC", {}).get("FS", {}).get("S1")
+    score2 = match.get("SC", {}).get("FS", {}).get("S2")
+    try:
+        score1 = int(score1) if score1 is not None else 0
+    except:
+        score1 = 0
+    try:
+        score2 = int(score2) if score2 is not None else 0
+    except:
+        score2 = 0
+    # Statut
+    minute = None
+    sc = match.get("SC", {})
+    if "TS" in sc and isinstance(sc["TS"], int):
+        minute = sc["TS"] // 60
+    elif "ST" in sc and isinstance(sc["ST"], int):
+        minute = sc["ST"]
+    elif "T" in match and isinstance(match["T"], int):
+        minute = match["T"] // 60
+    tn = match.get("TN", "").lower()
+    tns = match.get("TNS", "").lower()
+    tt = match.get("SC", {}).get("TT")
+    statut = "À venir"
+    is_live = False
+    is_finished = False
+    is_upcoming = False
+    if (minute is not None and minute > 0) or (score1 > 0 or score2 > 0):
+        statut = f"En cours ({minute}′)" if minute else "En cours"
+        is_live = True
+    if ("terminé" in tn or "terminé" in tns) or (tt == 3):
+        statut = "Terminé"
+        is_live = False
+        is_finished = True
+    if statut == "À venir":
+        is_upcoming = True
+    match_ts = match.get("S", 0)
+    match_time = datetime.datetime.utcfromtimestamp(match_ts).strftime('%d/%m/%Y %H:%M') if match_ts else "–"
+    # Cotes
+    odds_data = []
+    for o in match.get("E", []):
+        if o.get("G") == 1 and o.get("T") in [1, 2, 3] and o.get("C") is not None:
+            odds_data.append({
+                "type": {1: "1", 2: "2", 3: "X"}.get(o.get("T")),
+                "cote": o.get("C")
+            })
+    if not odds_data:
+        for ae in match.get("AE", []):
+            if ae.get("G") == 1:
+                for o in ae.get("ME", []):
+                    if o.get("T") in [1, 2, 3] and o.get("C") is not None:
+                        odds_data.append({
+                            "type": {1: "1", 2: "2", 3: "X"}.get(o.get("T")),
+                            "cote": o.get("C")
+                        })
+    if not odds_data:
+        formatted_odds = ["Pas de cotes disponibles"]
+    else:
+        formatted_odds = [f"{od['type']}: {od['cote']}" for od in odds_data]
+    prediction = "–"
+    if odds_data:
+        best = min(odds_data, key=lambda x: x["cote"])
+        prediction = {
+            "1": f"{team1} gagne",
+            "2": f"{team2} gagne",
+            "X": "Match nul"
+        }.get(best["type"], "–")
+    # Météo
+    meteo_data = match.get("MIS", [])
+    temp = next((item["V"] for item in meteo_data if item.get("K") == 9), "–")
+    humid = next((item["V"] for item in meteo_data if item.get("K") == 27), "–")
     return {
-        "matchId": match.get("I"),
-        "equipes": {
-            "domicile": match.get("O1"),
-            "exterieur": match.get("O2")
-        },
-        "etat": match.get("TN", "À venir"),
-        "dateHeure": datetime.datetime.utcfromtimestamp(match.get("S", 0)).isoformat() if match.get("S") else "",
-        "optionsParis": get_cotes(match),
-        "stats": get_stats(match),
-        "meteo": get_meteo(match)
+        "team1": team1,
+        "team2": team2,
+        "score1": score1,
+        "score2": score2,
+        "league": league,
+        "sport": sport,
+        "status": statut,
+        "datetime": match_time,
+        "temp": temp,
+        "humid": humid,
+        "odds": formatted_odds,
+        "prediction": prediction,
+        "id": match.get("I", None)
     }
 
 def get_ligues(data):
@@ -642,20 +720,21 @@ TEMPLATE = """<!DOCTYPE html>
                 fetch('/api/matchs')
                     .then(response => response.json())
                     .then(matches => {
+                        console.log('Données reçues pour le tableau principal :', matches);
                         var tbody = document.querySelector('table tbody');
                         if (!tbody) return;
                         tbody.innerHTML = '';
                         matches.forEach(function(m) {
                             var row = document.createElement('tr');
                             row.innerHTML = `
-                                <td>${m.equipes ? m.equipes.domicile : ''}</td>
+                                <td>${m.team1 || ''}</td>
                                 <td>${m.score1 !== undefined ? m.score1 : ''}</td>
                                 <td>${m.score2 !== undefined ? m.score2 : ''}</td>
-                                <td>${m.equipes ? m.equipes.exterieur : ''}</td>
+                                <td>${m.team2 || ''}</td>
                                 <td>${m.sport || ''}</td>
                                 <td>${m.league || ''}</td>
-                                <td>${m.etat || ''}</td>
-                                <td>${m.dateHeure || ''}</td>
+                                <td>${m.status || ''}</td>
+                                <td>${m.datetime || ''}</td>
                                 <td>${m.temp || ''}°C</td>
                                 <td>${m.humid || ''}%</td>
                                 <td>${Array.isArray(m.odds) ? m.odds.join(' | ') : m.odds}</td>
