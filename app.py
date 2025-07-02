@@ -323,6 +323,7 @@ def match_details(match_id):
             </div>
             <script>
                 const matchId = "{match_id}";
+                let currentChartType = 'bar';
                 let chart;
                 function updateDetails() {{
                     fetch(`/api/match/${{matchId}}`)
@@ -350,60 +351,36 @@ def match_details(match_id):
                                 }});
                                 statsTable.innerHTML = rows;
                             }}
-                            // Graphique
+                            // Graphique dynamique
                             const labels = (data.stats || []).map(s => s.nom);
                             const data1 = (data.stats || []).map(s => parseFloat(s.domicile) || 0);
                             const data2 = (data.stats || []).map(s => parseFloat(s.exterieur) || 0);
                             if(chart) chart.destroy();
                             chart = new Chart(document.getElementById('statsChart'), {{
-                                type: 'bar',
+                                type: currentChartType,
                                 data: {{
                                     labels: labels,
                                     datasets: [
-                                        {{ label: data.equipes.domicile, data: data1, backgroundColor: 'rgba(44,62,80,0.7)', borderColor: 'rgba(44,62,80,1)', borderWidth: 2 }},
-                                        {{ label: data.equipes.exterieur, data: data2, backgroundColor: 'rgba(39,174,96,0.7)', borderColor: 'rgba(39,174,96,1)', borderWidth: 2 }}
+                                        {{ label: data.equipes.domicile, data: data1, backgroundColor: currentChartType==='bar' ? 'rgba(44,62,80,0.7)' : 'rgba(44,62,80,0.4)', borderColor: 'rgba(44,62,80,1)', borderWidth: 2, fill: currentChartType==='radar' }},
+                                        {{ label: data.equipes.exterieur, data: data2, backgroundColor: currentChartType==='bar' ? 'rgba(39,174,96,0.7)' : 'rgba(39,174,96,0.4)', borderColor: 'rgba(39,174,96,1)', borderWidth: 2, fill: currentChartType==='radar' }}
                                     ]
                                 }},
                                 options: {{
                                     responsive: true,
                                     plugins: {{ legend: {{ position: 'top' }} }},
                                     animation: {{ duration: 1200 }},
-                                    scales: {{ y: {{ beginAtZero: true }} }}
+                                    scales: currentChartType==='bar' ? {{ y: {{ beginAtZero: true }} }} : {{}}
                                 }}
                             }});
                         }});
                 }}
-                setInterval(updateDetails, 5000);
-                // Initialisation du graphique (barres par défaut)
+                setInterval(updateDetails, 6000);
+                // Gestion des boutons pour changer le type de graphique
                 function showChart(type) {{
+                    currentChartType = type;
                     document.getElementById('barBtn').classList.toggle('active', type==='bar');
                     document.getElementById('radarBtn').classList.toggle('active', type==='radar');
-                    if(chart) chart.destroy();
-                    chart = new Chart(document.getElementById('statsChart'), {{
-                        type: type,
-                        data: {{
-                            labels: {json.dumps([s['nom'] for s in stats])},
-                            datasets: [
-                                {{ label: '{team1}', data: {json.dumps([float(s['s1']) if str(s['s1']).replace('.', '', 1).isdigit() else 0 for s in stats])}, backgroundColor: type==='bar' ? 'rgba(44,62,80,0.7)' : 'rgba(44,62,80,0.4)', borderColor: 'rgba(44,62,80,1)', borderWidth: 2, fill: type==='radar' }},
-                                {{ label: '{team2}', data: {json.dumps([float(s['s2']) if str(s['s2']).replace('.', '', 1).isdigit() else 0 for s in stats])}, backgroundColor: type==='bar' ? 'rgba(39,174,96,0.7)' : 'rgba(39,174,96,0.4)', borderColor: 'rgba(39,174,96,1)', borderWidth: 2, fill: type==='radar' }}
-                            ]
-                        }},
-                        options: {{
-                            responsive: true,
-                            plugins: {{
-                                legend: {{ position: 'top' }},
-                                tooltip: {{ enabled: true }},
-                                datalabels: {{
-                                    display: true,
-                                    color: '#222',
-                                    font: {{ weight: 'bold' }},
-                                    formatter: Math.round
-                                }}
-                            }},
-                            animation: {{ duration: 1200 }},
-                            scales: type==='bar' ? {{ y: {{ beginAtZero: true }} }} : {{}}
-                        }}
-                    }});
+                    updateDetails(); // Redessine le graphique avec le nouveau type
                 }}
                 // Affichage initial
                 showChart('bar');
@@ -745,7 +722,7 @@ TEMPLATE = """<!DOCTYPE html>
                         });
                     });
             }
-            setInterval(updateTable, 5000);
+            setInterval(updateTable, 6000);
         });
     </script>
 </head><body>
