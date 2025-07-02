@@ -308,7 +308,7 @@ def match_details(match_id):
                 <h3>Toutes les options de paris disponibles</h3>
                 <table class="paris-table" id="paris-table">
                     <tr><th>Option</th><th>Type (code)</th><th>Groupe</th><th>Paramètre</th><th>Cote</th><th>Probabilité (%)</th><th>Score robot</th><th>Écart relatif</th></tr>
-                    {''.join(f'<tr><td>{traduire_option_pari(opt, team1, team2)}</td><td>{opt["type"]}</td><td>{opt["groupe"]}</td><td>{opt["param"]}</td><td>{opt["cote"]}</td><td>{opt["proba"]*100:.1f}</td><td>{opt["score_robot"] if opt["score_robot"] is not None else "-"}</td><td>{opt["ecart_relatif"] if opt["ecart_relatif"] is not None else "-"}</td></tr>' for opt in options)}
+                    {''.join(f'<tr><td title="type: {opt["type"]}, groupe: {opt["groupe"]}, param: {opt["param"]}">{traduire_option_pari(opt, team1, team2)}</td><td>{opt["type"]}</td><td>{opt["groupe"]}</td><td>{opt["param"]}</td><td>{opt["cote"]}</td><td>{opt["proba"]*100:.1f}</td><td>{opt["score_robot"] if opt["score_robot"] is not None else "-"}</td><td>{opt["ecart_relatif"] if opt["ecart_relatif"] is not None else "-"}</td></tr>' for opt in options)}
                 </table>
                 <h3>Statistiques principales</h3>
                 <table class="stats-table" id="stats-table">
@@ -658,8 +658,51 @@ def traduire_option_pari(opt, team1, team2):
     # Mi-temps/fin de match
     elif g == 7:
         return f"Mi-temps/Fin de match : {param}"
-    # Autres cas
-    return f"Type {t} (groupe {g}, param {param})"
+    # Pari sur la première mi-temps
+    elif g == 8:
+        if t == 1:
+            return f"{team1} gagne la 1ère mi-temps"
+        elif t == 2:
+            return f"{team2} gagne la 1ère mi-temps"
+        elif t == 3:
+            return "Match nul à la mi-temps"
+    # Pari sur le nombre de corners
+    elif g == 9:
+        if t == 1:
+            return f"Plus de {param} corners"
+        elif t == 2:
+            return f"Moins de {param} corners"
+    # Pari sur le nombre de cartons
+    elif g == 10:
+        if t == 1:
+            return f"Plus de {param} cartons"
+        elif t == 2:
+            return f"Moins de {param} cartons"
+    # Pari combiné ou spécial
+    elif g == 11:
+        return f"Pari combiné/spécial : {param}"
+    # Pari sur le score à la mi-temps
+    elif g == 12:
+        return f"Score à la mi-temps : {param}"
+    # Pari sur le buteur
+    elif g == 13:
+        return f"Buteur : {param}"
+    # Pari sur le temps du premier but
+    elif g == 14:
+        return f"Premier but avant la {param}e minute"
+    # Pari sur la période avec le plus de buts
+    elif g == 15:
+        return f"Période avec le plus de buts : {param}"
+    # Autres cas connus (exemples génériques)
+    elif g == 16:
+        return f"Pari spécial : {param}"
+    elif g == 17:
+        return f"Pari joueur : {param}"
+    elif g == 18:
+        return f"Pari équipe : {param}"
+    # Cas inconnu ou non géré
+    else:
+        return f"Option non reconnue (type: {t}, groupe: {g}, param: {param})"
 
 TEMPLATE = """<!DOCTYPE html>
 <html><head>
