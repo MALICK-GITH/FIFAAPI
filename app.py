@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, request, render_template_string, jsonify
 import requests
 import os
 import datetime
@@ -200,19 +200,16 @@ def detect_sport(league_name):
 @app.route('/match/<int:match_id>')
 def match_details(match_id):
     try:
-        # Récupérer les données de l'API (ou brute.json si besoin)
         api_url = "https://1xbet.com/LiveFeed/Get1x2_VZip?sports=85&count=50&lng=fr&gr=70&mode=4&country=96&getEmpty=true"
         response = requests.get(api_url)
         matches = response.json().get("Value", [])
         match = next((m for m in matches if m.get("I") == match_id), None)
         if not match:
             return f"Aucun match trouvé pour l'identifiant {match_id}"
-        # Infos principales
         team1 = match.get("O1", "–")
         team2 = match.get("O2", "–")
         league = match.get("LE", "–")
         sport = detect_sport(league)
-        # Scores
         score1 = match.get("SC", {}).get("FS", {}).get("S1")
         score2 = match.get("SC", {}).get("FS", {}).get("S2")
         try:
@@ -232,34 +229,33 @@ def match_details(match_id):
                 s1 = stat.get("S1", "0")
                 s2 = stat.get("S2", "0")
                 stats.append({"nom": nom, "s1": s1, "s2": s2})
-        # Explication prédiction (simple)
-        explication = "La prédiction est basée sur les cotes et les statistiques principales (tirs, possession, etc.)."  # Peut être enrichi
-        # Prédiction
-        odds_data = []
-        for o in match.get("E", []):
-            if o.get("G") == 1 and o.get("T") in [1, 2, 3] and o.get("C") is not None:
-                odds_data.append({
-                    "type": {1: "1", 2: "2", 3: "X"}.get(o.get("T")),
-                    "cote": o.get("C")
+        # --- Options de paris (E et AE) ---
+        options = []
+        for o in match.get('E', []):
+            if o.get('C') is not None:
+                options.append({
+                    'type': o.get('T'),
+                    'groupe': o.get('G'),
+                    'cote': o.get('C'),
+                    'param': o.get('P', None)
                 })
-        if not odds_data:
-            for ae in match.get("AE", []):
-                if ae.get("G") == 1:
-                    for o in ae.get("ME", []):
-                        if o.get("T") in [1, 2, 3] and o.get("C") is not None:
-                            odds_data.append({
-                                "type": {1: "1", 2: "2", 3: "X"}.get(o.get("T")),
-                                "cote": o.get("C")
-                            })
-        prediction = "–"
-        if odds_data:
-            best = min(odds_data, key=lambda x: x["cote"])
-            prediction = {
-                "1": f"{team1} gagne",
-                "2": f"{team2} gagne",
-                "X": "Match nul"
-            }.get(best["type"], "–")
-        # HTML avec graphiques Chart.js CDN
+        for ae in match.get('AE', []):
+            for o in ae.get('ME', []):
+                if o.get('C') is not None:
+                    options.append({
+                        'type': o.get('T'),
+                        'groupe': o.get('G'),
+                        'cote': o.get('C'),
+                        'param': o.get('P', None)
+                    })
+        # Calcul des probabilités et filtrage
+        for opt in options:
+            opt['proba'] = round(1 / opt['cote'], 3)
+        options_filtrees = [opt for opt in options if 1.399 <= opt['cote'] <= 3]
+        meilleure = max(options_filtrees, key=lambda x: x['proba'], default=None)
+        # Explication robot
+        explication = "La probabilité est calculée comme 1/cote. Le robot recommande l'option avec la probabilité la plus forte dans la fourchette 1,399 à 3."
+        # HTML
         return f'''
         <!DOCTYPE html>
         <html><head>
@@ -269,11 +265,12 @@ def match_details(match_id):
             <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
             <style>
                 body {{ font-family: Arial; padding: 20px; background: #f4f4f4; }}
-                .container {{ max-width: 700px; margin: auto; background: white; border-radius: 10px; box-shadow: 0 2px 8px #ccc; padding: 20px; }}
+                .container {{ max-width: 900px; margin: auto; background: white; border-radius: 10px; box-shadow: 0 2px 8px #ccc; padding: 20px; }}
                 h2 {{ text-align: center; }}
-                .stats-table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-                .stats-table th, .stats-table td {{ border: 1px solid #ccc; padding: 8px; text-align: center; }}
+                .stats-table, .paris-table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                .stats-table th, .stats-table td, .paris-table th, .paris-table td {{ border: 1px solid #ccc; padding: 8px; text-align: center; }}
                 .back-btn {{ margin-bottom: 20px; display: inline-block; }}
+                .robot-box {{ background: #eafaf1; border: 2px solid #27ae60; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 18px; }}
             </style>
         </head><body>
             <div class="container">
@@ -281,8 +278,16 @@ def match_details(match_id):
                 <h2>{team1} vs {team2}</h2>
                 <p><b>Ligue :</b> {league} | <b>Sport :</b> {sport}</p>
                 <p><b>Score :</b> {score1} - {score2}</p>
-                <p><b>Prédiction du bot :</b> {prediction}</p>
-                <p><b>Explication :</b> {explication}</p>
+                <div class="robot-box">
+                    <b>🤖 Recommandation du robot :</b><br/>
+                    {f"Option : <b>{meilleure['type']}</b> (groupe {meilleure['groupe']}, paramètre {meilleure['param']})<br/>Cote : <b>{meilleure['cote']}</b> | Probabilité estimée : <b>{meilleure['proba']*100:.1f}%</b>" if meilleure else "Aucune option optimale trouvée dans la fourchette 1,399 à 3."}
+                    <br/><i>{explication}</i>
+                </div>
+                <h3>Toutes les options de paris disponibles</h3>
+                <table class="paris-table">
+                    <tr><th>Type</th><th>Groupe</th><th>Paramètre</th><th>Cote</th><th>Probabilité (%)</th></tr>
+                    {''.join(f'<tr><td>{opt["type"]}</td><td>{opt["groupe"]}</td><td>{opt["param"]}</td><td>{opt["cote"]}</td><td>{opt["proba"]*100:.1f}</td></tr>' for opt in options)}
+                </table>
                 <h3>Statistiques principales</h3>
                 <table class="stats-table">
                     <tr><th>Statistique</th><th>{team1}</th><th>{team2}</th></tr>
@@ -310,6 +315,152 @@ def match_details(match_id):
         '''
     except Exception as e:
         return f"Erreur lors de l'affichage des détails du match : {e}"
+
+# --- FONCTIONS D'EXTRACTION ROBUSTES ---
+def charger_donnees():
+    """Récupère les données depuis l'API ou le fichier local en cas d'échec."""
+    try:
+        api_url = "https://1xbet.com/LiveFeed/Get1x2_VZip?sports=85&count=50&lng=fr&gr=70&mode=4&country=96&getEmpty=true"
+        response = requests.get(api_url, timeout=5)
+        return response.json()
+    except Exception:
+        with open("Get1x2_VZip.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+
+def extraire_ligue(match):
+    return {
+        "id": match.get("LI"),
+        "nom": match.get("LE"),
+        "championnat": match.get("SN", match.get("SE", "")),
+        "sportId": match.get("SI"),
+        "zone": match.get("CN"),
+        "langue": "fr"
+    }
+
+def extraire_match(match):
+    return {
+        "matchId": match.get("I"),
+        "equipes": {
+            "domicile": match.get("O1"),
+            "exterieur": match.get("O2")
+        },
+        "etat": match.get("TN", "À venir"),
+        "dateHeure": datetime.datetime.utcfromtimestamp(match.get("S", 0)).isoformat() if match.get("S") else "",
+        "optionsParis": get_cotes(match),
+        "stats": get_stats(match),
+        "meteo": get_meteo(match)
+    }
+
+def get_ligues(data):
+    ligues = {}
+    for match in data.get('Value', []):
+        ligue_id = match.get('LI')
+        if ligue_id not in ligues:
+            ligues[ligue_id] = extraire_ligue(match)
+            ligues[ligue_id]['evenements'] = []
+        ligues[ligue_id]['evenements'].append(match.get('I'))
+    return ligues
+
+def get_matchs(data):
+    return [extraire_match(match) for match in data.get('Value', [])]
+
+def get_equipes(data):
+    equipes = {}
+    for match in data.get('Value', []):
+        for key in ['O1', 'O2']:
+            nom = match.get(key)
+            if nom and nom not in equipes:
+                equipes[nom] = {
+                    'nom': nom,
+                    'id': match.get(f'{key}I'),
+                    'img': match.get(f'{key}IMG', [""])[0] if match.get(f'{key}IMG') else ""
+                }
+    return equipes
+
+def get_cotes(match):
+    cotes = []
+                for o in match.get("E", []):
+        if o.get("C") is not None:
+            cotes.append({
+                "type": o.get("T"),
+                "groupe": o.get("G"),
+                "valeur": o.get("C"),
+                "param": o.get("P", None)
+            })
+    return cotes
+
+def get_stats(match):
+    stats = []
+    st = match.get("SC", {}).get("ST", [])
+    if st and isinstance(st, list) and len(st) > 0 and "Value" in st[0]:
+        for stat in st[0]["Value"]:
+            stats.append({
+                "nom": stat.get("N", "?"),
+                "domicile": stat.get("S1", "0"),
+                "exterieur": stat.get("S2", "0")
+            })
+    return stats
+
+def get_meteo(match):
+                meteo_data = match.get("MIS", [])
+                temp = next((item["V"] for item in meteo_data if item.get("K") == 9), "–")
+                humid = next((item["V"] for item in meteo_data if item.get("K") == 27), "–")
+    return {"temperature": temp, "humidite": humid}
+
+# --- ENDPOINTS API PUISSANTS ET SÉCURISÉS ---
+@app.route('/api/ligues')
+def api_ligues():
+    """Retourne toutes les ligues structurées avec leurs matchs."""
+    data = charger_donnees()
+    return jsonify(list(get_ligues(data).values()))
+
+@app.route('/api/matchs')
+def api_matchs():
+    """Retourne tous les matchs avec tous les détails utiles."""
+    data = charger_donnees()
+    return jsonify(get_matchs(data))
+
+@app.route('/api/equipes')
+def api_equipes():
+    """Retourne toutes les équipes présentes dans les matchs."""
+    data = charger_donnees()
+    return jsonify(list(get_equipes(data).values()))
+
+@app.route('/api/match/<int:match_id>')
+def api_match_detail(match_id):
+    """Retourne tous les détails d'un match donné."""
+    data = charger_donnees()
+    match = next((m for m in data.get('Value', []) if m.get('I') == match_id), None)
+    if not match:
+        return jsonify({"error": "Match introuvable"}), 404
+    return jsonify(extraire_match(match))
+
+@app.route('/api/match/<int:match_id>/stats')
+def api_match_stats(match_id):
+    """Retourne les statistiques avancées d'un match."""
+    data = charger_donnees()
+    match = next((m for m in data.get('Value', []) if m.get('I') == match_id), None)
+    if not match:
+        return jsonify({"error": "Match introuvable"}), 404
+    return jsonify(get_stats(match))
+
+@app.route('/api/match/<int:match_id>/cotes')
+def api_match_cotes(match_id):
+    """Retourne toutes les cotes d'un match."""
+    data = charger_donnees()
+    match = next((m for m in data.get('Value', []) if m.get('I') == match_id), None)
+    if not match:
+        return jsonify({"error": "Match introuvable"}), 404
+    return jsonify(get_cotes(match))
+
+@app.route('/api/match/<int:match_id>/meteo')
+def api_match_meteo(match_id):
+    """Retourne les infos météo d'un match."""
+    data = charger_donnees()
+    match = next((m for m in data.get('Value', []) if m.get('I') == match_id), None)
+    if not match:
+        return jsonify({"error": "Match introuvable"}), 404
+    return jsonify(get_meteo(match))
 
 TEMPLATE = """<!DOCTYPE html>
 <html><head>
