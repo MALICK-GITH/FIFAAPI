@@ -249,14 +249,12 @@ def match_details(match_id):
                         'param': o.get('P', None)
                     })
         # --- Robot FIFA : analyse sérieuse de la dispersion des cotes ---
-        # Grouper par type
         types = {}
         for opt in options:
             t = opt['type']
             if t not in types:
                 types[t] = []
             types[t].append(opt['cote'])
-        # Calculer la meilleure option
         best_score = -1
         best_opt = None
         for opt in options:
@@ -275,7 +273,6 @@ def match_details(match_id):
                 opt['proba'] = round(1 / opt['cote'], 3)
                 opt['score_robot'] = None
                 opt['ecart_relatif'] = None
-        # Explication robot
         explication = "Le robot analyse la dispersion des cotes pour chaque type de pari. Une option avec une cote plus basse que la moyenne de son type est considérée comme plus fiable. Le score robotique combine la probabilité implicite et cet écart relatif."
         # HTML
         return f'''
@@ -293,45 +290,123 @@ def match_details(match_id):
                 .stats-table th, .stats-table td, .paris-table th, .paris-table td {{ border: 1px solid #ccc; padding: 8px; text-align: center; }}
                 .back-btn {{ margin-bottom: 20px; display: inline-block; }}
                 .robot-box {{ background: #eafaf1; border: 2px solid #27ae60; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 18px; }}
+                .chart-switch {{ text-align:center; margin: 20px 0; }}
+                .chart-switch button {{ padding: 8px 18px; margin: 0 8px; font-size: 16px; border: none; border-radius: 4px; background: #2c3e50; color: white; cursor: pointer; }}
+                .chart-switch button.active {{ background: #27ae60; }}
             </style>
         </head><body>
             <div class="container">
                 <a href="/" class="back-btn">&larr; Retour à la liste</a>
-                <h2>{team1} vs {team2}</h2>
-                <p><b>Ligue :</b> {league} | <b>Sport :</b> {sport}</p>
-                <p><b>Score :</b> {score1} - {score2}</p>
-                <div class="robot-box">
+                <h2 id="teams">{team1} vs {team2}</h2>
+                <p><b>Ligue :</b> <span id="league">{league}</span> | <b>Sport :</b> <span id="sport">{sport}</span></p>
+                <p><b>Score :</b> <span id="score">{score1} - {score2}</span></p>
+                <div class="robot-box" id="robot-box">
                     <b>🤖 Recommandation du robot FIFA :</b><br/>
                     {f"Option : <b>{best_opt['type']}</b> (groupe {best_opt['groupe']}, paramètre {best_opt['param']})<br/>Cote : <b>{best_opt['cote']}</b> | Probabilité estimée : <b>{best_opt['proba']*100:.1f}%</b> | Score robot : <b>{best_opt['score_robot']}</b>" if best_opt else "Aucune option optimale trouvée dans la fourchette 1,399 à 3."}
                     <br/><i>{explication}</i>
                 </div>
                 <h3>Toutes les options de paris disponibles</h3>
-                <table class="paris-table">
-                    <tr><th>Type</th><th>Groupe</th><th>Paramètre</th><th>Cote</th><th>Probabilité (%)</th><th>Score robot</th><th>Écart relatif</th></tr>
-                    {''.join(f'<tr><td>{opt["type"]}</td><td>{opt["groupe"]}</td><td>{opt["param"]}</td><td>{opt["cote"]}</td><td>{opt["proba"]*100:.1f}</td><td>{opt["score_robot"] if opt["score_robot"] is not None else "-"}</td><td>{opt["ecart_relatif"] if opt["ecart_relatif"] is not None else "-"}</td></tr>' for opt in options)}
+                <table class="paris-table" id="paris-table">
+                    <tr><th>Option</th><th>Type (code)</th><th>Groupe</th><th>Paramètre</th><th>Cote</th><th>Probabilité (%)</th><th>Score robot</th><th>Écart relatif</th></tr>
+                    {''.join(f'<tr><td>{traduire_option_pari(opt, team1, team2)}</td><td>{opt["type"]}</td><td>{opt["groupe"]}</td><td>{opt["param"]}</td><td>{opt["cote"]}</td><td>{opt["proba"]*100:.1f}</td><td>{opt["score_robot"] if opt["score_robot"] is not None else "-"}</td><td>{opt["ecart_relatif"] if opt["ecart_relatif"] is not None else "-"}</td></tr>' for opt in options)}
                 </table>
                 <h3>Statistiques principales</h3>
-                <table class="stats-table">
+                <table class="stats-table" id="stats-table">
                     <tr><th>Statistique</th><th>{team1}</th><th>{team2}</th></tr>
                     {''.join(f'<tr><td>{s["nom"]}</td><td>{s["s1"]}</td><td>{s["s2"]}</td></tr>' for s in stats)}
                 </table>
+                <div class="chart-switch">
+                    <button id="barBtn" class="active" onclick="showChart('bar')">Barres</button>
+                    <button id="radarBtn" onclick="showChart('radar')">Radar</button>
+                </div>
                 <canvas id="statsChart" height="200"></canvas>
             </div>
             <script>
-                const labels = { [repr(s['nom']) for s in stats] };
-                const data1 = { [float(s['s1']) if s['s1'].replace('.', '', 1).isdigit() else 0 for s in stats] };
-                const data2 = { [float(s['s2']) if s['s2'].replace('.', '', 1).isdigit() else 0 for s in stats] };
-                new Chart(document.getElementById('statsChart'), {{
-                    type: 'bar',
-                    data: {{
-                        labels: labels,
-                        datasets: [
-                            {{ label: '{team1}', data: data1, backgroundColor: 'rgba(44,62,80,0.7)' }},
-                            {{ label: '{team2}', data: data2, backgroundColor: 'rgba(39,174,96,0.7)' }}
-                        ]
-                    }},
-                    options: {{ responsive: true, plugins: {{ legend: {{ position: 'top' }} }} }}
-                }});
+                const matchId = "{match_id}";
+                let chart;
+                function updateDetails() {{
+                    fetch(`/api/match/${{matchId}}`)
+                        .then(response => response.json())
+                        .then(data => {{
+                            document.getElementById('teams').textContent = data.equipes.domicile + ' vs ' + data.equipes.exterieur;
+                            document.getElementById('league').textContent = data.championnat || '';
+                            document.getElementById('sport').textContent = data.sportId || '';
+                            document.getElementById('score').textContent = (data.score1 || 0) + ' - ' + (data.score2 || 0);
+                            // Paris
+                            let parisTable = document.getElementById('paris-table');
+                            if (parisTable) {{
+                                let rows = '<tr><th>Option</th><th>Type (code)</th><th>Groupe</th><th>Paramètre</th><th>Cote</th><th>Probabilité (%)</th><th>Score robot</th><th>Écart relatif</th></tr>';
+                                (data.optionsParis || []).forEach(opt => {{
+                                    rows += `<tr><td>${{opt.description || ''}}</td><td>${{opt.type}}</td><td>${{opt.groupe}}</td><td>${{opt.param}}</td><td>${{opt.valeur}}</td><td>${{opt.proba ? (opt.proba*100).toFixed(1) : '-'}}</td><td>${{opt.score_robot || '-'}}</td><td>${{opt.ecart_relatif || '-'}}</td></tr>`;
+                                }});
+                                parisTable.innerHTML = rows;
+                            }}
+                            // Stats
+                            let statsTable = document.getElementById('stats-table');
+                            if (statsTable) {{
+                                let rows = `<tr><th>Statistique</th><th>${{data.equipes.domicile}}</th><th>${{data.equipes.exterieur}}</th></tr>`;
+                                (data.stats || []).forEach(s => {{
+                                    rows += `<tr><td>${{s.nom}}</td><td>${{s.domicile}}</td><td>${{s.exterieur}}</td></tr>`;
+                                }});
+                                statsTable.innerHTML = rows;
+                            }}
+                            // Graphique
+                            const labels = (data.stats || []).map(s => s.nom);
+                            const data1 = (data.stats || []).map(s => parseFloat(s.domicile) || 0);
+                            const data2 = (data.stats || []).map(s => parseFloat(s.exterieur) || 0);
+                            if(chart) chart.destroy();
+                            chart = new Chart(document.getElementById('statsChart'), {{
+                                type: 'bar',
+                                data: {{
+                                    labels: labels,
+                                    datasets: [
+                                        {{ label: data.equipes.domicile, data: data1, backgroundColor: 'rgba(44,62,80,0.7)', borderColor: 'rgba(44,62,80,1)', borderWidth: 2 }},
+                                        {{ label: data.equipes.exterieur, data: data2, backgroundColor: 'rgba(39,174,96,0.7)', borderColor: 'rgba(39,174,96,1)', borderWidth: 2 }}
+                                    ]
+                                }},
+                                options: {{
+                                    responsive: true,
+                                    plugins: {{ legend: {{ position: 'top' }} }},
+                                    animation: {{ duration: 1200 }},
+                                    scales: {{ y: {{ beginAtZero: true }} }}
+                                }}
+                            }});
+                        }});
+                }}
+                setInterval(updateDetails, 5000);
+                // Initialisation du graphique (barres par défaut)
+                function showChart(type) {{
+                    document.getElementById('barBtn').classList.toggle('active', type==='bar');
+                    document.getElementById('radarBtn').classList.toggle('active', type==='radar');
+                    if(chart) chart.destroy();
+                    chart = new Chart(document.getElementById('statsChart'), {{
+                        type: type,
+                        data: {{
+                            labels: {json.dumps([s['nom'] for s in stats])},
+                            datasets: [
+                                {{ label: '{team1}', data: {json.dumps([float(s['s1']) if str(s['s1']).replace('.', '', 1).isdigit() else 0 for s in stats])}, backgroundColor: type==='bar' ? 'rgba(44,62,80,0.7)' : 'rgba(44,62,80,0.4)', borderColor: 'rgba(44,62,80,1)', borderWidth: 2, fill: type==='radar' }},
+                                {{ label: '{team2}', data: {json.dumps([float(s['s2']) if str(s['s2']).replace('.', '', 1).isdigit() else 0 for s in stats])}, backgroundColor: type==='bar' ? 'rgba(39,174,96,0.7)' : 'rgba(39,174,96,0.4)', borderColor: 'rgba(39,174,96,1)', borderWidth: 2, fill: type==='radar' }}
+                            ]
+                        }},
+                        options: {{
+                            responsive: true,
+                            plugins: {{
+                                legend: {{ position: 'top' }},
+                                tooltip: {{ enabled: true }},
+                                datalabels: {{
+                                    display: true,
+                                    color: '#222',
+                                    font: {{ weight: 'bold' }},
+                                    formatter: Math.round
+                                }}
+                            }},
+                            animation: {{ duration: 1200 }},
+                            scales: type==='bar' ? {{ y: {{ beginAtZero: true }} }} : {{}}
+                        }}
+                    }});
+                }}
+                // Affichage initial
+                showChart('bar');
             </script>
         </body></html>
         '''
@@ -484,6 +559,33 @@ def api_match_meteo(match_id):
         return jsonify({"error": "Match introuvable"}), 404
     return jsonify(get_meteo(match))
 
+# --- Fonction de traduction des options de pari ---
+def traduire_option_pari(opt, team1, team2):
+    t = opt.get('type')
+    g = opt.get('groupe')
+    param = opt.get('param')
+    # 1N2 classique
+    if t == 1:
+        return f"Victoire {team1}"
+    elif t == 2:
+        return f"Victoire {team2}"
+    elif t == 3 or t == 'X':
+        return "Match nul"
+    # Handicap
+    elif g == 2:
+        if t == 1:
+            return f"{team1} gagne avec handicap {param}"
+        elif t == 2:
+            return f"{team2} gagne avec handicap {param}"
+    # Over/Under
+    elif g == 3:
+        if t == 1:
+            return f"Plus de {param} buts"
+        elif t == 2:
+            return f"Moins de {param} buts"
+    # Autres cas
+    return f"Type {t} (groupe {g}, param {param})"
+
 TEMPLATE = """<!DOCTYPE html>
 <html><head>
     <meta charset="utf-8">
@@ -534,6 +636,37 @@ TEMPLATE = """<!DOCTYPE html>
                     document.getElementById('loader').style.display = 'flex';
                 });
             });
+
+            // --- Rafraîchissement automatique du tableau ---
+            function updateTable() {
+                fetch('/api/matchs')
+                    .then(response => response.json())
+                    .then(matches => {
+                        var tbody = document.querySelector('table tbody');
+                        if (!tbody) return;
+                        tbody.innerHTML = '';
+                        matches.forEach(function(m) {
+                            var row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>${m.equipes ? m.equipes.domicile : ''}</td>
+                                <td>${m.score1 !== undefined ? m.score1 : ''}</td>
+                                <td>${m.score2 !== undefined ? m.score2 : ''}</td>
+                                <td>${m.equipes ? m.equipes.exterieur : ''}</td>
+                                <td>${m.sport || ''}</td>
+                                <td>${m.league || ''}</td>
+                                <td>${m.etat || ''}</td>
+                                <td>${m.dateHeure || ''}</td>
+                                <td>${m.temp || ''}°C</td>
+                                <td>${m.humid || ''}%</td>
+                                <td>${Array.isArray(m.odds) ? m.odds.join(' | ') : m.odds}</td>
+                                <td>${m.prediction || ''}</td>
+                                <td>${m.id ? `<a href='/match/${m.id}'><button>Détails</button></a>` : '–'}</td>
+                            `;
+                            tbody.appendChild(row);
+                        });
+                    });
+            }
+            setInterval(updateTable, 5000);
         });
     </script>
 </head><body>
@@ -584,11 +717,14 @@ TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <table>
+        <thead>
         <tr>
             <th>Équipe 1</th><th>Score 1</th><th>Score 2</th><th>Équipe 2</th>
             <th>Sport</th><th>Ligue</th><th>Statut</th><th>Date & Heure</th>
             <th>Température</th><th>Humidité</th><th>Cotes</th><th>Prédiction</th><th>Détails</th>
         </tr>
+        </thead>
+        <tbody>
         {% for m in data %}
         <tr>
             <td>{{m.team1}}</td><td>{{m.score1}}</td><td>{{m.score2}}</td><td>{{m.team2}}</td>
@@ -597,6 +733,7 @@ TEMPLATE = """<!DOCTYPE html>
             <td>{% if m.id %}<a href="/match/{{m.id}}"><button>Détails</button></a>{% else %}–{% endif %}</td>
         </tr>
         {% endfor %}
+        </tbody>
     </table>
 </body></html>"""
 
