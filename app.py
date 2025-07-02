@@ -1,10 +1,11 @@
-from flask import Flask, request, render_template_string, jsonify
+# Le CSS de l'application est désormais dans static/style.css
+from flask import Flask, request, render_template_string, jsonify, send_from_directory
 import requests
 import os
 import datetime
 import json
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 
 @app.route('/')
 def home():
@@ -282,18 +283,7 @@ def match_details(match_id):
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Détails du match</title>
             <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-            <style>
-                body { font-family: Arial; padding: 20px; background: #f4f4f4; }
-                .container { max-width: 900px; margin: auto; background: white; border-radius: 10px; box-shadow: 0 2px 8px #ccc; padding: 20px; }
-                h2 { text-align: center; }
-                .stats-table, .paris-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                .stats-table th, .stats-table td, .paris-table th, .paris-table td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-                .back-btn { margin-bottom: 20px; display: inline-block; }
-                .expert-box { background: #f7f7f7; border: 2px solid #444; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 18px; color: #222; }
-                .chart-switch { text-align:center; margin: 20px 0; }
-                .chart-switch button { padding: 8px 18px; margin: 0 8px; font-size: 16px; border: none; border-radius: 4px; background: #2c3e50; color: white; cursor: pointer; }
-                .chart-switch button.active { background: #27ae60; }
-            </style>
+            <link rel="stylesheet" href="/static/style.css">
         </head><body>
             <div class="container">
                 <a href="/" class="back-btn">&larr; Retour à la liste</a>
@@ -621,12 +611,12 @@ def traduire_option_pari(opt, team1, team2):
     param = opt.get('param')
     # Groupe 1 : 1N2 classique (victoire, nul, défaite)
     if g == 1:
-        if t == 1:
-            return f"Victoire {team1}"
-        elif t == 2:
-            return f"Victoire {team2}"
-        elif t == 3 or t == 'X':
-            return "Match nul"
+    if t == 1:
+        return f"Victoire {team1}"
+    elif t == 2:
+        return f"Victoire {team2}"
+    elif t == 3 or t == 'X':
+        return "Match nul"
     # Groupe 2 : Handicap
     elif g == 2:
         if t == 7:
@@ -706,43 +696,7 @@ TEMPLATE = """<!DOCTYPE html>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Matchs en direct</title>
-    <style>
-        body { font-family: Arial; padding: 20px; background: #f4f4f4; }
-        h2 { text-align: center; }
-        form { text-align: center; margin-bottom: 20px; }
-        select { padding: 8px; margin: 0 10px; font-size: 14px; }
-        table { border-collapse: collapse; margin: auto; width: 98%; background: white; }
-        th, td { padding: 10px; border: 1px solid #ccc; text-align: center; }
-        th { background: #2c3e50; color: white; }
-        tr:nth-child(even) { background-color: #f9f9f9; }
-        .pagination { text-align: center; margin: 20px 0; }
-        .pagination button { padding: 8px 16px; margin: 0 4px; font-size: 16px; border: none; background: #2c3e50; color: white; border-radius: 4px; cursor: pointer; }
-        .pagination button:disabled { background: #ccc; cursor: not-allowed; }
-        /* Responsive */
-        @media (max-width: 800px) {
-            table, thead, tbody, th, td, tr { display: block; }
-            th { position: absolute; left: -9999px; top: -9999px; }
-            tr { margin-bottom: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 6px #ccc; }
-            td { border: none; border-bottom: 1px solid #eee; position: relative; padding-left: 50%; min-height: 40px; }
-            td:before { position: absolute; top: 10px; left: 10px; width: 45%; white-space: nowrap; font-weight: bold; }
-            td:nth-of-type(1):before { content: 'Équipe 1'; }
-            td:nth-of-type(2):before { content: 'Score 1'; }
-            td:nth-of-type(3):before { content: 'Score 2'; }
-            td:nth-of-type(4):before { content: 'Équipe 2'; }
-            td:nth-of-type(5):before { content: 'Sport'; }
-            td:nth-of-type(6):before { content: 'Ligue'; }
-            td:nth-of-type(7):before { content: 'Statut'; }
-            td:nth-of-type(8):before { content: 'Date & Heure'; }
-            td:nth-of-type(9):before { content: 'Température'; }
-            td:nth-of-type(10):before { content: 'Humidité'; }
-            td:nth-of-type(11):before { content: 'Cotes'; }
-            td:nth-of-type(12):before { content: 'Prédiction'; }
-        }
-        /* Loader */
-        #loader { display: none; position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; background: rgba(255,255,255,0.7); z-index: 9999; justify-content: center; align-items: center; }
-        #loader .spinner { border: 8px solid #f3f3f3; border-top: 8px solid #2c3e50; border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             var forms = document.querySelectorAll('form');
@@ -852,6 +806,10 @@ TEMPLATE = """<!DOCTYPE html>
         </tbody>
     </table>
 </body></html>"""
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory('static', filename)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
