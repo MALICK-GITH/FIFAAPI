@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Bot de Prédiction</title>
+</head>
+<body>
+    <h1>Jeu de Billes — Bot de Prédiction</h1>
+    <form id="predictForm">
+        <label for="billes">Choisis le nombre de billes:</label>
+        <select name="billes" id="billes">
+            <option value="1">1 bille</option>
+            <option value="2">2 billes</option>
+        </select>
+        <button type="submit">Lancer la prédiction</button>
+    </form>
+    <p id="resultat"></p>
+
+    <script>
+        document.getElementById('predictForm').onsubmit = async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const res = await fetch('/predict', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+            document.getElementById('resultat').innerText = "Prédiction : " + data.prediction;
+        }
+    </script>
+</body>
+</html>
