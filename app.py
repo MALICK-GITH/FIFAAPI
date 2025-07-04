@@ -1,5 +1,10 @@
 from flask import Flask, render_template, request, jsonify
-from predict import predict_position, enregistrer_resultat, charger_donnees, exporter_csv
+from predict import (
+    predict_position,
+    enregistrer_resultat,
+    charger_donnees,
+    exporter_csv  # ✅ Correction de l’import
+)
 import os
 
 app = Flask(__name__)
