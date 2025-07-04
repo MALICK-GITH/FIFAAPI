@@ -10,9 +10,6 @@
             background-color: #f9f9f9;
             padding: 20px;
         }
-        h1 {
-            color: #333;
-        }
         .gobelet-zone {
             display: flex;
             justify-content: center;
@@ -51,6 +48,14 @@
             font-weight: bold;
             color: #007b7a;
         }
+        table {
+            margin: 20px auto;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+        }
     </style>
 </head>
 <body>
@@ -71,7 +76,11 @@
         <button type="submit">Lancer la prédiction</button>
     </form>
 
+    <button onclick="chargerStats()">Voir les statistiques</button>
+    <button onclick="exporterCSV()">Exporter historique (.csv)</button>
+
     <p id="resultat"></p>
+    <div id="statistiques"></div>
 
     <script>
         document.getElementById('predictForm').onsubmit = async function(e) {
@@ -89,6 +98,24 @@
                 zone.innerText = "Erreur : " + (data.error || "Réponse vide");
             }
         };
+
+        async function chargerStats() {
+            const res = await fetch('/stats');
+            const data = await res.json();
+            const stats = data.répartition;
+            let contenu = `<h2>Statistiques</h2><table><tr><th>Position</th><th>Occurrences</th></tr>`;
+            for (let position in stats) {
+                contenu += `<tr><td>${position}</td><td>${stats[position]}</td></tr>`;
+            }
+            contenu += `</table><p>Total de parties : ${data.total_parties}</p>`;
+            document.getElementById('statistiques').innerHTML = contenu;
+        }
+
+        async function exporterCSV() {
+            const res = await fetch('/export');
+            const data = await res.json();
+            alert(data.message || "Erreur : " + data.error);
+        }
     </script>
 </body>
 </html>
