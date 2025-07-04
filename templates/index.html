@@ -5,9 +5,14 @@
     <title>Bot de Prédiction</title>
 </head>
 <body>
-    <h1>Jeu de Billes — Bot de Prédiction</h1>
+    <h1>Jeu des Billes — Bot Prédictif</h1>
+    <div id="gobelets">
+        <img src="/static/gobelet1.png" alt="Gobelet Gauche">
+        <img src="/static/gobelet2.png" alt="Gobelet Centre">
+        <img src="/static/gobelet3.png" alt="Gobelet Droite">
+    </div>
     <form id="predictForm">
-        <label for="billes">Choisis le nombre de billes:</label>
+        <label for="billes">Nombre de billes :</label>
         <select name="billes" id="billes">
             <option value="1">1 bille</option>
             <option value="2">2 billes</option>
@@ -25,8 +30,13 @@
                 body: formData
             });
             const data = await res.json();
-            document.getElementById('resultat').innerText = "Prédiction : " + data.prediction;
-        }
+            const zone = document.getElementById('resultat');
+            if (data.prediction) {
+                zone.innerText = "Prédiction : " + data.prediction;
+            } else {
+                zone.innerText = "Erreur : " + (data.error || "Réponse vide");
+            }
+        };
     </script>
 </body>
 </html>
