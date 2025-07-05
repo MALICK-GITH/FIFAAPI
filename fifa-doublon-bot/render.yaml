@@ -4,8 +4,8 @@ services:
     env: python
     plan: free
     dockerfilePath: Dockerfile
-    buildCommand: pip install -r requirements.txt
-    startCommand: python fifa_doublon_bot.py
+    buildCommand: "pip install -r fifa-doublon-bot/requirements.txt
+    startCommand: "python fifa-doublon-bot/fifa_doublon_bot.py
     disk: 10GB
     envVars:
       - key: TELEGRAM_TOKEN
