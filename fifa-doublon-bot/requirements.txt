@@ -1,0 +1,4 @@
+python-telegram-bot==13.3
+requests==2.25.1
+sqlite3==2.6.0
+schedule==1.0.0
