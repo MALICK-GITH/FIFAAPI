@@ -9,7 +9,10 @@ def extract_match_data(json_obj):
             },
             "odds": entry.get("E", []),
             "handicaps": entry.get("AE", []),
-            "score": entry.get("SC", {})
+            "score": entry.get("SC", {}),
+            "league": entry.get("L", ""),
+            "country": entry.get("CO", ""),
+            "status": entry.get("C", 0)
         }
         matches.append(match)
     return matches
