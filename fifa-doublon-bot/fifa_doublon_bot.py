@@ -3,8 +3,8 @@ from telegram import Bot
 from datetime import datetime
 
 # 🔧 Configuration
-TOKEN = 'TON_TOKEN_TELEGRAM'
-CHAT_ID = 'TON_CHAT_ID'
+TOKEN = '8095305269:AAFBdRXSKqCLUP6s1pLXgFD794arKKqTqK8'
+CHAT_ID = '7569017578'
 API_URL = 'https://1xbet.com/LiveFeed/Get1x2_VZip?sports=85&count=50&lng=fr&gr=70&mode=4&country=96&getEmpty=true'
 INTERVAL = 10800  # 3 heures en secondes
 SCAN_FREQUENCY = 120  # toutes les 2 minutes
