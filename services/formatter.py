@@ -1,9 +1,11 @@
 def format_odds(odds):
-    return [
-        {
+    formatted = []
+    for o in odds:
+        formatted.append({
             "type": o.get("T"),
             "group": o.get("G"),
             "value": o.get("C"),
-            "handicap": o.get("P", None)
-        } for o in odds
-    ]
+            "handicap": o.get("P", None),
+            "outcome": o.get("O")
+        })
+    return formatted
